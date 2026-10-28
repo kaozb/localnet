@@ -67,6 +67,15 @@ public final class WebhookPrefs {
         p(c).edit().putString("ringtone", uri).apply();
     }
 
+    /** 自定义上游 DNS（单个），空 = 默认 223.5.5.5 / 8.8.8.8 */
+    public static String dnsUpstream(Context c) {
+        return p(c).getString("dnsUpstream", "");
+    }
+
+    public static void setDnsUpstream(Context c, String v) {
+        p(c).edit().putString("dnsUpstream", v == null ? "" : v.trim()).apply();
+    }
+
     /** 短信转发地址模板，可含 {content} {sender} {time} {date} 变量 */
     public static String smsUrl(Context c) {
         return p(c).getString("smsUrl", "");

@@ -9,6 +9,7 @@ import android.content.pm.ServiceInfo;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
+import android.os.SystemClock;
 
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -16,6 +17,7 @@ import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.util.HashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -60,7 +62,7 @@ public class BlockVpnService extends VpnService {
     };
 
     // 上游 DNS：先国内可达的，再 Google
-    private static final String[] UPSTREAM = {"223.5.5.5", "8.8.8.8"};
+    private static final String[] DEFAULT_UPSTREAM = {"223.5.5.5", "8.8.8.8"};
 
     private static final String CHANNEL = "vpn";
     private static final Object OUT_LOCK = new Object();
@@ -72,6 +74,8 @@ public class BlockVpnService extends VpnService {
     private volatile FileOutputStream out;
     private volatile Thread worker;
     private volatile ExecutorService pool;
+    /** 实际使用的上游：设置里填了自定义 DNS 就只用它 */
+    private volatile String[] upstream = DEFAULT_UPSTREAM;
     private volatile boolean running = false;
     /** DNS 拦截开关（设置页）：关闭时 DNS 全部直通上游 */
     private volatile boolean dnsEnabled = true;
@@ -124,6 +128,7 @@ public class BlockVpnService extends VpnService {
     // ------------------------------------------------------------------ 生命周期
 
     private void loadRules() {
+        upstream = parseUpstream(WebhookPrefs.dnsUpstream(this));
         rules.clear();
         Subs subs = new Subs(this);
         for (Subs.Sub s : subs.list) {
@@ -498,9 +503,20 @@ public class BlockVpnService extends VpnService {
         return t;
     }
 
-    /** 转发到上游 DNS（socket 已 protect，不会回流进 TUN） */
+    /** 转发到上游 DNS（socket 已 protect，不会回流进 TUN）；命中缓存直接回 */
     private void forward(byte[] query, boolean v4, byte[] srvAddr, byte[] cliAddr, int cliPort) {
-        for (String up : UPSTREAM) {
+        String key = cacheKey(query);
+        if (key != null) {
+            byte[] hit = cacheGet(key);
+            if (hit != null) {
+                byte[] out = hit.clone();
+                out[0] = query[0];
+                out[1] = query[1]; // 回填本次事务 ID
+                writeReply(v4, srvAddr, cliAddr, cliPort, out);
+                return;
+            }
+        }
+        for (String up : upstream) {
             DatagramSocket sock = null;
             try {
                 sock = new DatagramSocket();
@@ -514,13 +530,81 @@ public class BlockVpnService extends VpnService {
                 if (len < 12) continue;
                 byte[] resp = new byte[len];
                 System.arraycopy(buf, 0, resp, 0, len);
-                writeReply(v4, srvAddr, cliAddr, cliPort, cap(resp));
+                byte[] dns = cap(resp);
+                if (key != null) cachePut(key, dns);
+                writeReply(v4, srvAddr, cliAddr, cliPort, dns);
                 return;
             } catch (Exception ignored) {
             } finally {
                 if (sock != null) sock.close();
             }
         }
+    }
+
+    // ------------------------------------------------------------------ DNS 缓存
+
+    private static final long DNS_CACHE_MS = 10 * 60 * 1000L; // 10 分钟，命中自动续期
+    private static final int DNS_CACHE_MAX = 1024;
+    private final Object cacheLock = new Object();
+    private final HashMap<String, byte[]> cacheData = new HashMap<>();
+    private final HashMap<String, Long> cacheExpiry = new HashMap<>();
+
+    /** 取查询报文的 qname+qtype 作为缓存键 */
+    private static String cacheKey(byte[] q) {
+        if (q.length < 17) return null;
+        StringBuilder sb = new StringBuilder(32);
+        int i = 12;
+        while (i < q.length) {
+            int len = q[i] & 0xFF;
+            if (len == 0) break;
+            if (len > 63 || i + 1 + len >= q.length) return null;
+            for (int j = 1; j <= len; j++) {
+                char ch = (char) (q[i + j] & 0xFF);
+                sb.append(ch >= 'A' && ch <= 'Z' ? (char) (ch + 32) : ch);
+            }
+            sb.append('.');
+            i += 1 + len;
+        }
+        if (i + 5 > q.length) return null;
+        int qtype = ((q[i + 1] & 0xFF) << 8) | (q[i + 2] & 0xFF);
+        return sb + "|" + qtype;
+    }
+
+    /** 命中返回缓存响应，并把过期时间重置为 10 分钟后 */
+    private byte[] cacheGet(String key) {
+        synchronized (cacheLock) {
+            Long exp = cacheExpiry.get(key);
+            byte[] resp = cacheData.get(key);
+            if (exp == null || resp == null) return null;
+            long now = SystemClock.elapsedRealtime();
+            if (now >= exp) {
+                cacheExpiry.remove(key);
+                cacheData.remove(key);
+                return null;
+            }
+            cacheExpiry.put(key, now + DNS_CACHE_MS); // 再次命中，重新计时
+            return resp;
+        }
+    }
+
+    private void cachePut(String key, byte[] resp) {
+        synchronized (cacheLock) {
+            if (cacheData.size() >= DNS_CACHE_MAX) { // 简单防膨胀：满了清空重来
+                cacheData.clear();
+                cacheExpiry.clear();
+            }
+            cacheData.put(key, resp);
+            cacheExpiry.put(key, SystemClock.elapsedRealtime() + DNS_CACHE_MS);
+        }
+    }
+
+    /** 自定义上游：填了就只用一个，不存在多上游轮询 */
+    private static String[] parseUpstream(String s) {
+        if (s != null) {
+            String v = s.trim().toLowerCase();
+            if (v.contains(".") || v.contains(":")) return new String[]{v};
+        }
+        return DEFAULT_UPSTREAM;
     }
 
     private void writeReply(boolean v4, byte[] src, byte[] dst, int dport, byte[] dns) {

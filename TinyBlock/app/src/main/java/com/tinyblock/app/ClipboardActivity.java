@@ -5,7 +5,6 @@ import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
-import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
@@ -15,6 +14,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -25,13 +25,16 @@ import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.List;
 
-/** 剪切板页：消息历史，点击一行复制全文 */
+/** 剪切板页：消息历史，点击一行复制全文（跟随 App 深色主题） */
 public class ClipboardActivity extends Activity {
 
-    private static final int BG = 0xFFEEF3FB;
-    private static final int TEXT = 0xFF1B2735;
-    private static final int MUTED = 0xFF7C8DA6;
     private static final int BLUE = 0xFF1A73E8;
+
+    private int BG;
+    private int TEXT;
+    private int MUTED;
+    private int CARD;
+    private int RED;
 
     private final List<String[]> items = new ArrayList<>();
     private ListView list;
@@ -41,6 +44,21 @@ public class ClipboardActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        boolean dark = WebhookPrefs.get(this, WebhookPrefs.KEY_DARK, false);
+        BG = dark ? 0xFF11161F : 0xFFEEF3FB;
+        TEXT = dark ? 0xFFE8EEF9 : 0xFF1B2735;
+        MUTED = dark ? 0xFF8B98AD : 0xFF7C8DA6;
+        CARD = dark ? 0xFF1A2230 : 0xFFFFFFFF;
+        RED = dark ? 0xFFFF7061 : 0xFFD93025;
+
+        Window w = getWindow();
+        w.setStatusBarColor(BG);
+        View decor = w.getDecorView();
+        int flags = decor.getSystemUiVisibility();
+        if (dark) flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+        else flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+        decor.setSystemUiVisibility(flags);
+
         super.onCreate(savedInstanceState);
         buildUi();
     }
@@ -59,7 +77,7 @@ public class ClipboardActivity extends Activity {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setBackgroundColor(Color.WHITE);
+        bar.setBackgroundColor(CARD);
         bar.setPadding(dp(12), dp(10), dp(12), dp(10));
 
         TextView back = new TextView(this);
@@ -88,7 +106,7 @@ public class ClipboardActivity extends Activity {
         TextView clear = new TextView(this);
         clear.setText("清空");
         clear.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        clear.setTextColor(0xFFD93025);
+        clear.setTextColor(RED);
         clear.setPadding(dp(10), dp(6), dp(4), dp(6));
         clear.setOnClickListener(v -> confirmClear());
         bar.addView(clear);
@@ -219,7 +237,7 @@ public class ClipboardActivity extends Activity {
                 row.setGravity(Gravity.CENTER_VERTICAL);
                 row.setPadding(dp(12), dp(12), dp(12), dp(12));
                 GradientDrawable bg = new GradientDrawable();
-                bg.setColor(Color.WHITE);
+                bg.setColor(CARD);
                 bg.setCornerRadius(dp(10));
                 row.setBackground(bg);
 

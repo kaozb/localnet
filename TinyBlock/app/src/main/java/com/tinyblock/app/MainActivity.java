@@ -112,6 +112,7 @@ public class MainActivity extends Activity {
     private TextView clipSummary;
     private TextView notifValue;
     private TextView overlayValue;
+    private TextView dnsValue;
 
     private LinearLayout subListBox;
     private LinearLayout redirectListBox;
@@ -719,6 +720,17 @@ public class MainActivity extends Activity {
         c1.addView(g1);
         content.addView(c1);
 
+        // ===== 网络 =====
+        LinearLayout c1b = card();
+        c1b.addView(sectionTitle("网络"));
+        LinearLayout dnsRow = permissionRow("自定义 DNS");
+        dnsValue = (TextView) dnsRow.getTag();
+        dnsRow.setOnClickListener(v -> editDns());
+        c1b.addView(dnsRow);
+        c1b.addView(note("设置后所有 DNS 查询只发往该地址（端口 53），留空用默认 223.5.5.5 / 8.8.8.8。运行中修改立即生效。"));
+        refreshDnsValue();
+        content.addView(c1b);
+
         // ===== 显示 =====
         LinearLayout c2 = card();
         c2.addView(sectionTitle("显示"));
@@ -898,6 +910,36 @@ public class MainActivity extends Activity {
 
     private void styleTab(TextView tab, boolean selected) {
         tab.setTextColor(selected ? BLUE : TEXT_SUB);
+    }
+
+    private void refreshDnsValue() {
+        if (dnsValue == null) return;
+        String v = WebhookPrefs.dnsUpstream(this);
+        dnsValue.setText(v.isEmpty() ? "默认" : v);
+    }
+
+    /** 点击「自定义 DNS」：设置单一上游，运行中通过 reload 立即生效 */
+    private void editDns() {
+        final EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setInputType(InputType.TYPE_CLASS_PHONE);
+        input.setHint("如 192.168.1.1，留空恢复默认");
+        input.setText(WebhookPrefs.dnsUpstream(this));
+        input.setPadding(dp(20), dp(10), dp(20), dp(10));
+
+        new AlertDialog.Builder(this)
+                .setTitle("自定义 DNS")
+                .setMessage("所有 DNS 查询将只发往这个地址，留空使用默认 223.5.5.5 / 8.8.8.8。")
+                .setView(input)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("保存", (d, w) -> {
+                    String v = input.getText().toString().trim();
+                    WebhookPrefs.setDnsUpstream(this, v);
+                    refreshDnsValue();
+                    toast(v.isEmpty() ? "已恢复默认 DNS" : "DNS 已设为 " + v);
+                    if (serviceRunning) sendReload();
+                })
+                .show();
     }
 
     private void refreshMessageState() {
