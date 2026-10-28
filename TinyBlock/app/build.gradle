@@ -10,17 +10,29 @@ android {
         applicationId "com.tinyblock.app"
         minSdk 21
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.1.0"
+    }
+
+    // 固定 keystore：debug / release 统一签名，升级可覆盖安装
+    signingConfigs {
+        appSign {
+            storeFile rootProject.file('signing/TinyBlock.keystore')
+            storePassword 'tinyblock123'
+            keyAlias 'tinyblock'
+            keyPassword 'tinyblock123'
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig signingConfigs.appSign
+        }
         release {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
-            // 使用 debug 签名，方便直接安装
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.appSign
         }
     }
 

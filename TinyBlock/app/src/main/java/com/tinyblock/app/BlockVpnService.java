@@ -32,10 +32,12 @@ public class BlockVpnService extends VpnService {
     public static final String ACTION_STATUS = "com.tinyblock.app.STATUS";
     public static final String EXTRA_RUNNING = "running";
     public static final String EXTRA_RULES = "rules";
+    public static final String EXTRA_REDIRECTS = "redirects";
 
     // 供 UI 在服务未广播时读取的即时状态
     public static volatile boolean stateRunning = false;
     public static volatile int stateRules = 0;
+    public static volatile int stateRedirects = 0;
 
     private static final String VPN_ADDR4 = "10.111.222.1";
     private static final String FAKE_DNS4 = "10.111.222.3";
@@ -59,6 +61,8 @@ public class BlockVpnService extends VpnService {
     private static final Object OUT_LOCK = new Object();
 
     private final Rules rules = new Rules();
+    // 域名重定向表：小写域名 -> IP 字节（4 或 16 字节），含子域名匹配，优先级最高
+    private final java.util.HashMap<String, byte[]> redirects = new java.util.HashMap<>();
     private volatile ParcelFileDescriptor tun;
     private volatile FileOutputStream out;
     private volatile Thread worker;
@@ -104,6 +108,26 @@ public class BlockVpnService extends VpnService {
             java.io.File f = Subs.fileFor(this, s.url);
             if (f.isFile()) rules.loadFile(f.getAbsolutePath());
         }
+        redirects.clear();
+        RedirectStore store = new RedirectStore(this);
+        for (RedirectStore.Entry e : store.list) {
+            if (!e.enabled) continue;
+            byte[] ip = RedirectStore.parseIp(e.ip);
+            if (ip != null) redirects.put(e.domain.toLowerCase(), ip);
+        }
+    }
+
+    /** 域名重定向匹配（含子域名），返回 IP 字节，未命中返回 null */
+    private byte[] matchRedirect(String host) {
+        String d = host;
+        while (d.length() > 0) {
+            byte[] ip = redirects.get(d);
+            if (ip != null) return ip;
+            int i = d.indexOf('.');
+            if (i < 0) return null;
+            d = d.substring(i + 1);
+        }
+        return null;
     }
 
     private void startTunnel() {
@@ -248,6 +272,14 @@ public class BlockVpnService extends VpnService {
             forward(dns, v4, dst, src, sport);
             return;
         }
+        // 1) 重定向优先：直接返回用户设置的 IP
+        byte[] rip = matchRedirect(name.toString());
+        if (rip != null) {
+            int qtype = u16(dns, qend - 4);
+            writeReply(v4, dst, src, sport, redirectAnswer(dns, qend, qtype, rip));
+            return;
+        }
+        // 2) 黑名单拦截（白名单在 match 内优先）
         if (rules.match(name.toString()) == 1) {
             writeReply(v4, dst, src, sport, nxdomain(dns, qend));
         } else {
@@ -300,6 +332,40 @@ public class BlockVpnService extends VpnService {
         r[6] = r[7] = 0;                       // ANCOUNT
         r[8] = r[9] = 0;                       // NSCOUNT
         r[10] = r[11] = 0;                     // ARCOUNT
+        return r;
+    }
+
+    /**
+     * 命中重定向：返回携带自定义 A / AAAA 记录的应答。
+     * 查询类型与 IP 版本不匹配时返回空应答（NOERROR，0 条记录）。
+     */
+    private static byte[] redirectAnswer(byte[] q, int qend, int qtype, byte[] ip) {
+        boolean v4ip = ip.length == 4;
+        boolean match = (qtype == 1 && v4ip) || (qtype == 28 && !v4ip);
+        int rdlen = v4ip ? 4 : 16;
+        int anlen = match ? (2 + 10 + rdlen) : 0; // 名字指针2 + 固定段10 + RDATA
+        byte[] r = new byte[qend + anlen];
+        System.arraycopy(q, 0, r, 0, qend);
+        r[2] = (byte) (0x80 | (q[2] & 0x01)); // QR=1，保留 RD
+        r[3] = (byte) 0x80;                    // RA=1, RCODE=0
+        if (match) {
+            r[6] = 0;
+            r[7] = 1;                          // ANCOUNT=1
+            int o = qend;
+            r[o++] = (byte) 0xC0;              // 指向问题区偏移 12 的域名
+            r[o++] = (byte) 0x0C;
+            r[o++] = (byte) (qtype >> 8);
+            r[o++] = (byte) qtype;
+            r[o++] = 0;
+            r[o++] = 1;                        // CLASS=IN
+            r[o++] = 0;
+            r[o++] = 0;
+            r[o++] = 0;
+            r[o++] = 60;                       // TTL=60s
+            r[o++] = (byte) (rdlen >> 8);
+            r[o++] = (byte) rdlen;
+            System.arraycopy(ip, 0, r, o, rdlen);
+        }
         return r;
     }
 
@@ -443,10 +509,12 @@ public class BlockVpnService extends VpnService {
     private void broadcastStatus() {
         stateRunning = running;
         stateRules = rules.blockCount();
+        stateRedirects = redirects.size();
         Intent i = new Intent(ACTION_STATUS);
         i.setPackage(getPackageName());
         i.putExtra(EXTRA_RUNNING, running);
         i.putExtra(EXTRA_RULES, stateRules);
+        i.putExtra(EXTRA_REDIRECTS, stateRedirects);
         sendBroadcast(i);
     }
 
@@ -467,7 +535,7 @@ public class BlockVpnService extends VpnService {
         }
         nb.setSmallIcon(android.R.drawable.ic_secure)
                 .setContentTitle("TinyBlock 拦截运行中")
-                .setContentText("已加载 " + rules.blockCount() + " 条域名规则")
+                .setContentText("拦截 " + rules.blockCount() + " 条 · 重定向 " + redirects.size() + " 条")
                 .setContentIntent(pi)
                 .setOngoing(true);
         return nb.build();
