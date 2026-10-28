@@ -13,7 +13,6 @@ import java.net.SocketTimeoutException;
 import java.net.URLDecoder;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -28,16 +27,13 @@ public class WebhookServer {
     public interface Listener {
         void onMessage(String text, String body);
 
-        /** 收到上传文件（multipart/form-data），保存后返回保存位置描述；失败返回 null */
-        String onFile(String name, byte[] data);
-
         void onStarted(int port);
 
         void onError(String message);
     }
 
     private static final int MAX_HEADER = 64 * 1024;
-    private static final int MAX_BODY = 64 * 1024 * 1024; // 文件上传上限 64MB
+    private static final int MAX_BODY = 1024 * 1024;
 
     private final int port;
     private final Listener listener;
@@ -168,18 +164,6 @@ public class WebhookServer {
                 return;
             }
 
-            // 文件上传：multipart/form-data
-            String ctype = headers.getOrDefault("content-type", "");
-            if (ctype.toLowerCase().contains("multipart/form-data")) {
-                handleMultipart(out, ctype, body, read);
-                return;
-            }
-            // 浏览器访问 /upload：返回极简上传页
-            if (read == 0 && path.toLowerCase().startsWith("/upload")) {
-                respond(out, 200, "text/html; charset=utf-8", UPLOAD_PAGE);
-                return;
-            }
-
             String text = extractText(headers, bodyText, path);
             if (text == null || text.trim().isEmpty()) {
                 respond(out, 200, "application/json; charset=utf-8",
@@ -201,133 +185,6 @@ public class WebhookServer {
         } finally {
             closeQuietly(socket);
         }
-    }
-
-    // ------------------------------------------------------------------ 文件上传
-
-    /** 极简上传页：一个按钮，选完即传 */
-    private static final String UPLOAD_PAGE =
-            "<!DOCTYPE html><html><head><meta charset=utf-8>"
-                    + "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
-                    + "<title>TinyBlock 上传</title></head>"
-                    + "<body style=\"font-family:system-ui;background:#111;color:#eee;text-align:center;padding-top:42vh\">"
-                    + "<input type=file id=f multiple style=display:none onchange=\"up(this.files)\">"
-                    + "<button onclick=\"f.click()\" style=\"font-size:19px;padding:14px 38px;border:0;border-radius:999px;background:#1a73e8;color:#fff\">选择文件上传</button>"
-                    + "<p id=m style=\"margin-top:16px;font-size:14px;color:#9ab\"></p>"
-                    + "<script>function up(fs){var m=document.getElementById('m');var n=0;"
-                    + "for(var i=0;i<fs.length;i++){(function(x){var q=new FormData();q.append('file',x);"
-                    + "var r=new XMLHttpRequest();r.open('POST','/upload');"
-                    + "r.onload=function(){if(++n==fs.length)m.textContent=this.status==200?'已上传 '+n+' 个文件':'上传失败'};"
-                    + "r.send(q)})(fs[i])}}</script></body></html>";
-
-    /** 解析 multipart/form-data，取第一个带 filename 的 part 交给监听者保存 */
-    private void handleMultipart(OutputStream out, String contentType, byte[] body, int len) {
-        String boundary = null;
-        for (String seg : contentType.split(";")) {
-            String s = seg.trim();
-            if (s.toLowerCase().startsWith("boundary=")) {
-                boundary = s.substring(9).replace("\"", "").trim();
-            }
-        }
-        if (boundary == null || boundary.isEmpty()) {
-            respond(out, 400, "application/json; charset=utf-8",
-                    "{\"ok\":false,\"error\":\"missing boundary\"}");
-            return;
-        }
-        String[] name = {null};
-        byte[] file = extractFilePart(body, len, boundary, name);
-        if (file == null || name[0] == null) {
-            respond(out, 400, "application/json; charset=utf-8",
-                    "{\"ok\":false,\"error\":\"no file part\"}");
-            return;
-        }
-        String saved;
-        try {
-            saved = listener.onFile(name[0], file);
-        } catch (Exception e) {
-            saved = null;
-        }
-        try {
-            JSONObject ok = new JSONObject();
-            if (saved != null) {
-                ok.put("ok", true);
-                ok.put("file", name[0]);
-                ok.put("size", file.length);
-                ok.put("saved", saved);
-            } else {
-                ok.put("ok", false);
-                ok.put("error", "save failed");
-            }
-            respond(out, saved != null ? 200 : 500,
-                    "application/json; charset=utf-8", ok.toString());
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static byte[] extractFilePart(byte[] body, int len, String boundary, String[] nameOut) {
-        byte[] delim = ("--" + boundary).getBytes(StandardCharsets.ISO_8859_1);
-        byte[] tail = new byte[delim.length + 2];
-        tail[0] = '\r';
-        tail[1] = '\n';
-        System.arraycopy(delim, 0, tail, 2, delim.length);
-        int pos = indexOf(body, len, delim, 0);
-        while (pos >= 0) {
-            int lineEnd = pos + delim.length;
-            if (lineEnd + 1 < len && body[lineEnd] == '-' && body[lineEnd + 1] == '-') {
-                return null; // 结束标记 --boundary--
-            }
-            int headersEnd = indexOf(body, len,
-                    "\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1), lineEnd);
-            if (headersEnd < 0) return null;
-            String partHeaders = new String(body, lineEnd, headersEnd - lineEnd,
-                    StandardCharsets.UTF_8);
-            int contentStart = headersEnd + 4;
-            int next = indexOf(body, len, tail, contentStart);
-            if (next < 0) next = len;
-            if (partHeaders.toLowerCase().contains("filename")) {
-                nameOut[0] = fileNameFromHeaders(partHeaders);
-                if (nameOut[0] == null || nameOut[0].isEmpty()) nameOut[0] = "unnamed";
-                return Arrays.copyOfRange(body, contentStart, next);
-            }
-            pos = indexOf(body, len, delim, next);
-        }
-        return null;
-    }
-
-    private static String fileNameFromHeaders(String headers) {
-        for (String line : headers.split("\r\n")) {
-            if (!line.toLowerCase().startsWith("content-disposition")) continue;
-            for (String seg : line.split(";")) {
-                String s = seg.trim();
-                if (s.startsWith("filename*=")) { // RFC 5987
-                    String v = s.substring(10).replace("\"", "");
-                    int q = v.indexOf("''");
-                    if (q >= 0) v = v.substring(q + 2);
-                    try {
-                        return URLDecoder.decode(v, "UTF-8");
-                    } catch (Exception ignored) {
-                        return v;
-                    }
-                }
-                if (s.startsWith("filename=")) {
-                    String v = s.substring(9).replace("\"", "").trim();
-                    return v.isEmpty() ? null : v;
-                }
-            }
-        }
-        return null;
-    }
-
-    private static int indexOf(byte[] data, int len, byte[] pattern, int from) {
-        if (pattern.length == 0 || len < pattern.length) return -1;
-        outer:
-        for (int i = Math.max(0, from); i <= len - pattern.length; i++) {
-            for (int j = 0; j < pattern.length; j++) {
-                if (data[i + j] != pattern[j]) continue outer;
-            }
-            return i;
-        }
-        return -1;
     }
 
     private static String readHeaders(InputStream in, Map<String, String> headers) throws Exception {

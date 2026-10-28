@@ -20,7 +20,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.DocumentsContract;
 import android.provider.Settings;
 import android.text.InputType;
 import android.text.TextUtils;
@@ -79,7 +78,6 @@ public class MainActivity extends Activity {
     private static final int REQ_VPN = 1;
     private static final int REQ_NOTIF = 2;
     private static final int REQ_RING = 3;
-    private static final int REQ_DIR = 5;
     private static final int REQ_SMS = 4;
 
     private Subs subs;
@@ -112,7 +110,6 @@ public class MainActivity extends Activity {
     private Switch swRing;
     private TextView ringValue;
     private TextView clipSummary;
-    private TextView uploadInfo;
     private TextView notifValue;
     private TextView overlayValue;
 
@@ -454,19 +451,7 @@ public class MainActivity extends Activity {
         Button open = filledBtn("剪切板");
         open.setOnClickListener(v -> startActivity(new Intent(this, ClipboardActivity.class)));
         clipBtns.addView(open, new LinearLayout.LayoutParams(0, dp(40), 1f));
-        Button files = filledBtn("文件");
-        files.setOnClickListener(v -> pickUploadDir());
-        LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(0, dp(40), 1f);
-        flp.leftMargin = dp(8);
-        clipBtns.addView(files, flp);
         c3.addView(clipBtns);
-
-        uploadInfo = new TextView(this);
-        uploadInfo.setTextSize(11);
-        uploadInfo.setTextColor(TEXT_SUB);
-        uploadInfo.setPadding(0, dp(6), 0, 0);
-        uploadInfo.setLineSpacing(dp(2), 1f);
-        c3.addView(uploadInfo);
         content.addView(c3);
 
         // ===== 权限 =====
@@ -491,7 +476,6 @@ public class MainActivity extends Activity {
         LinearLayout c5 = card();
         c5.addView(sectionTitle("说明"));
         c5.addView(note("· 任意路径、任意方法均可；GET 带 query 也能接收\n"
-                + "· 文件上传：POST multipart 到 /upload（≤64MB），保存目录点「文件」设置\n"
                 + "· 与 DNS 拦截共用同一个开关，启动后同时生效\n"
                 + "· 端口监听在本机局域网，请勿直接暴露到公网\n"
                 + "· 锁屏后部分系统可能延迟送达，可将本应用加入后台白名单"));
@@ -918,7 +902,6 @@ public class MainActivity extends Activity {
 
     private void refreshMessageState() {
         if (portInput == null) return;
-        refreshUploadInfo();
         if (!WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true)) {
             addressView.setText("消息接收功能已在「设置」页关闭");
             addressView.setTextColor(TEXT_SUB);
@@ -1237,19 +1220,6 @@ public class MainActivity extends Activity {
                 pendingStart = false;
                 toast("未授权 VPN，已取消启动");
             }
-        } else if (req == REQ_DIR) {
-            Uri uri = data == null ? null : data.getData();
-            if (uri != null) {
-                try {
-                    getContentResolver().takePersistableUriPermission(uri,
-                            Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                    | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-                } catch (Exception ignored) {
-                }
-                WebhookPrefs.setUploadDir(this, uri.toString());
-                toast("文件将保存到：" + treeDisplayName(uri));
-                refreshUploadInfo();
-            }
         } else if (req == REQ_RING) {
             Uri uri = data == null ? null
                     : data.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI);
@@ -1313,50 +1283,6 @@ public class MainActivity extends Activity {
             if (previewTone != null) previewTone.play();
         } catch (Exception ignored) {
         }
-    }
-
-    /** 点击「文件」：选择局域网上传文件的保存目录 */
-    private void pickUploadDir() {
-        try {
-            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-            i.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
-                    | Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-            startActivityForResult(i, REQ_DIR);
-        } catch (Exception e) {
-            toast("无法打开目录选择器");
-        }
-    }
-
-    private String treeDisplayName(Uri tree) {
-        try {
-            Uri doc = DocumentsContract.buildDocumentUriUsingTree(tree,
-                    DocumentsContract.getTreeDocumentId(tree));
-            android.database.Cursor cur = getContentResolver().query(doc,
-                    new String[]{"_display_name"}, null, null, null);
-            if (cur != null) {
-                try {
-                    if (cur.moveToFirst()) return cur.getString(0);
-                } finally {
-                    cur.close();
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return tree.getLastPathSegment();
-    }
-
-    private void refreshUploadInfo() {
-        if (uploadInfo == null) return;
-        String dir = WebhookPrefs.uploadDir(this);
-        String dirText;
-        if (dir == null || dir.isEmpty()) {
-            dirText = "保存目录：默认（Android/data/com.tinyblock.app/files/upload）";
-        } else {
-            dirText = "保存目录：" + treeDisplayName(Uri.parse(dir)) + "（点「文件」可更换）";
-        }
-        uploadInfo.setText(dirText + "\n上传地址：http://<本机IP>:" + WebhookPrefs.port(this)
-                + "/upload  ← 局域网设备 POST 文件到这个地址");
     }
 
     // ------------------------------------------------------------------ 组件

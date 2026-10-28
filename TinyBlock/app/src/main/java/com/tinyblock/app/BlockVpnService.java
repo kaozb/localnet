@@ -6,21 +6,16 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
-import android.net.Uri;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
-import android.provider.DocumentsContract;
 
-import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
-import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -275,18 +270,6 @@ public class BlockVpnService extends VpnService {
             }
 
             @Override
-            public String onFile(String name, byte[] data) {
-                String saved = saveUpload(name, data);
-                MessageCenter m = messages;
-                if (m != null) {
-                    m.onMessage(saved != null
-                            ? "📎 收到文件 " + name + "（" + fmtSize(data.length) + "）"
-                            : "⚠️ 文件 " + name + " 保存失败");
-                }
-                return saved;
-            }
-
-            @Override
             public void onStarted(int boundPort) {
                 statePort = boundPort;
                 statePortError = null;
@@ -304,67 +287,6 @@ public class BlockVpnService extends VpnService {
         });
         server = s;
         s.start();
-    }
-
-    /** 保存上传文件：优先用户所选目录（SAF），否则应用外部目录 upload/ 下 */
-    private String saveUpload(String name, byte[] data) {
-        String dirSetting = WebhookPrefs.uploadDir(this);
-        try {
-            if (dirSetting == null || dirSetting.isEmpty()) {
-                File dir = new File(getExternalFilesDir(null), "upload");
-                if (!dir.exists()) dir.mkdirs();
-                File f = new File(dir, uniqueName(dir, name));
-                FileOutputStream fo = new FileOutputStream(f);
-                fo.write(data);
-                fo.close();
-                return f.getAbsolutePath();
-            }
-            Uri tree = Uri.parse(dirSetting);
-            Uri doc = DocumentsContract.buildDocumentUriUsingTree(tree,
-                    DocumentsContract.getTreeDocumentId(tree));
-            Uri created = DocumentsContract.createDocument(getContentResolver(), doc,
-                    guessMime(name), name);
-            if (created == null) return null;
-            OutputStream os = getContentResolver().openOutputStream(created);
-            os.write(data);
-            os.close();
-            return "所选目录/" + name;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private static String uniqueName(File dir, String name) {
-        if (!new File(dir, name).exists()) return name;
-        int dot = name.lastIndexOf('.');
-        String base = dot > 0 ? name.substring(0, dot) : name;
-        String ext = dot > 0 ? name.substring(dot) : "";
-        for (int i = 1; i < 1000; i++) {
-            String n = base + " (" + i + ")" + ext;
-            if (!new File(dir, n).exists()) return n;
-        }
-        return "upload-" + System.currentTimeMillis() + ext;
-    }
-
-    private static String guessMime(String name) {
-        String n = name.toLowerCase(Locale.ROOT);
-        if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
-        if (n.endsWith(".png")) return "image/png";
-        if (n.endsWith(".gif")) return "image/gif";
-        if (n.endsWith(".webp")) return "image/webp";
-        if (n.endsWith(".pdf")) return "application/pdf";
-        if (n.endsWith(".txt") || n.endsWith(".log") || n.endsWith(".md")) return "text/plain";
-        if (n.endsWith(".zip")) return "application/zip";
-        if (n.endsWith(".apk")) return "application/vnd.android.package-archive";
-        if (n.endsWith(".mp4")) return "video/mp4";
-        if (n.endsWith(".mp3")) return "audio/mpeg";
-        return "application/octet-stream";
-    }
-
-    private static String fmtSize(int bytes) {
-        if (bytes >= 1024 * 1024) return String.format(Locale.CHINA, "%.1f MB", bytes / 1048576f);
-        if (bytes >= 1024) return String.format(Locale.CHINA, "%.1f KB", bytes / 1024f);
-        return bytes + " B";
     }
 
     private void reloadWebhookIfNeeded() {

@@ -67,15 +67,6 @@ public final class WebhookPrefs {
         p(c).edit().putString("ringtone", uri).apply();
     }
 
-    /** 文件上传保存目录（SAF tree uri），null/空 = 应用私有 upload 目录 */
-    public static String uploadDir(Context c) {
-        return p(c).getString("uploadDir", null);
-    }
-
-    public static void setUploadDir(Context c, String uri) {
-        p(c).edit().putString("uploadDir", uri).apply();
-    }
-
     /** 短信转发地址模板，可含 {content} {sender} {time} {date} 变量 */
     public static String smsUrl(Context c) {
         return p(c).getString("smsUrl", "");
