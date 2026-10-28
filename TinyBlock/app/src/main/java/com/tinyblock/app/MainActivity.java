@@ -710,8 +710,9 @@ public class MainActivity extends Activity {
         });
 
         LinearLayout gSms = gridRow();
-        gSms.addView(switchCell("短信转发", swSms), cellLp());
-        gSms.addView(new View(this), cellLp()); // 占位，保持两列对齐
+        LinearLayout.LayoutParams full = cellLp();
+        full.weight = 2f; // 独占整行，开关紧跟标签
+        gSms.addView(switchCell("短信转发", swSms), full);
         c1.addView(gSms);
         content.addView(c1);
 
