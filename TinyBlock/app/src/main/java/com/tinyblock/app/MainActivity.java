@@ -27,6 +27,7 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
@@ -95,8 +96,9 @@ public class MainActivity extends Activity {
 
     private boolean keepOn;
     private boolean dimmed;
+    private View lockOverlay;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
-    private final Runnable dimTask = this::dimScreen;
+    private final Runnable dimTask = this::showLockOverlay;
 
     private EditText portInput;
     private TextView addressView;
@@ -185,7 +187,7 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         uiHandler.removeCallbacks(dimTask);
-        restoreBrightness();
+        hideLockOverlay();
     }
 
     @Override
@@ -195,10 +197,10 @@ public class MainActivity extends Activity {
         if (hasFocus) {
             scheduleDim();
         } else {
-            // 下拉状态栏 / 切到其他应用时立即恢复默认亮度：
+            // 下拉状态栏 / 切到其他应用时退出锁屏遮罩并恢复默认亮度：
             // 窗口级亮度覆盖会压住系统亮度调节，必须及时撤掉
             uiHandler.removeCallbacks(dimTask);
-            restoreBrightness();
+            hideLockOverlay();
         }
     }
 
@@ -787,7 +789,7 @@ public class MainActivity extends Activity {
         decor.setSystemUiVisibility(flags);
     }
 
-    /** 屏幕常亮：前台保持亮屏；60 秒无操作调至最低亮度，触摸任意位置恢复 */
+    /** 屏幕常亮：前台保持亮屏；60 秒无操作盖全屏黑遮罩模拟锁屏，点击恢复 */
     private void applyKeepOn() {
         keepOn = WebhookPrefs.get(this, WebhookPrefs.KEY_KEEP_ON, false);
         Window w = getWindow();
@@ -797,7 +799,7 @@ public class MainActivity extends Activity {
         } else {
             w.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             uiHandler.removeCallbacks(dimTask);
-            restoreBrightness();
+            hideLockOverlay();
         }
     }
 
@@ -806,9 +808,40 @@ public class MainActivity extends Activity {
         uiHandler.postDelayed(dimTask, 60_000L);
     }
 
-    private void dimScreen() {
+    /** 60 秒无操作：盖上全屏纯黑遮罩模拟锁屏（非真锁屏），亮度压到最低省电，点击恢复 */
+    private void showLockOverlay() {
+        if (lockOverlay != null) return;
+        FrameLayout overlay = new FrameLayout(this);
+        overlay.setBackgroundColor(0xFF000000);
+        overlay.setClickable(true);
+        overlay.setLongClickable(true);
+        overlay.setOnClickListener(v -> {
+            hideLockOverlay();
+            scheduleDim();
+        });
+
+        TextView hint = new TextView(this);
+        hint.setText("点击屏幕唤醒");
+        hint.setTextSize(12);
+        hint.setTextColor(0x40FFFFFF);
+        overlay.addView(hint, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER));
+
+        ((ViewGroup) getWindow().getDecorView()).addView(overlay, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        lockOverlay = overlay;
         dimmed = true;
-        setBrightness(0.02f);
+        setBrightness(0.01f);
+    }
+
+    private void hideLockOverlay() {
+        if (lockOverlay != null) {
+            ViewGroup decor = (ViewGroup) getWindow().getDecorView();
+            decor.removeView(lockOverlay);
+            lockOverlay = null;
+        }
+        restoreBrightness();
     }
 
     private void restoreBrightness() {
@@ -826,10 +859,8 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
-        if (keepOn) {
-            if (dimmed && ev.getActionMasked() == MotionEvent.ACTION_DOWN) {
-                restoreBrightness();
-            }
+        // 遮罩显示时由它自己消费点击并唤醒，这里不拦截
+        if (keepOn && lockOverlay == null) {
             scheduleDim();
         }
         return super.dispatchTouchEvent(ev);
