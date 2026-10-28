@@ -43,7 +43,6 @@ public class MainActivity extends Activity {
 
     // ---- 蓝色主题配色 ----
     private static final int BLUE = 0xFF1A73E8;
-    private static final int BLUE_DEEP = 0xFF0B3FA8;
     private static final int BG = 0xFFEEF3FB;
     private static final int CARD = 0xFFFFFFFF;
     private static final int ITEM_BG = 0xFFF5F8FD;
@@ -246,7 +245,7 @@ public class MainActivity extends Activity {
         scroll.setFillViewport(true);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(14), dp(10), dp(14), dp(24));
+        content.setPadding(dp(14), dp(6), dp(14), dp(24));
         scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
 
         // ===== 消息接收 =====
@@ -410,7 +409,7 @@ public class MainActivity extends Activity {
         scroll.setFillViewport(true);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(14), dp(10), dp(14), dp(24));
+        content.setPadding(dp(14), dp(6), dp(14), dp(24));
         scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
 
         // ===== 订阅管理卡片 =====
@@ -447,17 +446,15 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------ 头部状态
 
     private void refreshHeader() {
-        // 圆形启动按钮：径向渐变 + 白圈 + 投影营造 3D 感；运行后变纯深蓝、「启动」两字消失
+        // 圆形启动按钮：径向渐变 + 白圈 + 投影营造 3D 感；启动后变黄色、「启动」两字消失
         GradientDrawable circle = new GradientDrawable();
         circle.setShape(GradientDrawable.OVAL);
         circle.setStroke(dp(3), 0xFFFFFFFF);
-        if (serviceRunning) {
-            circle.setColor(BLUE_DEEP);
-        } else {
-            circle.setGradientType(GradientDrawable.RADIAL_GRADIENT);
-            circle.setGradientRadius(dp(28));
-            circle.setColors(new int[]{0xFF2C6FE8, 0xFF0A3D9E});
-        }
+        circle.setGradientType(GradientDrawable.RADIAL_GRADIENT);
+        circle.setGradientRadius(dp(28));
+        circle.setColors(serviceRunning
+                ? new int[]{0xFFFFC94D, 0xFFEE9500}
+                : new int[]{0xFF2C6FE8, 0xFF0A3D9E});
         mainBtn.setBackground(circle);
         mainBtn.setText(serviceRunning ? "" : "启动");
         refreshTabs();
