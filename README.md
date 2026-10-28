@@ -148,6 +148,9 @@ curl "http://192.168.1.5:12345/?text=hello"
 # PowerShell
 Invoke-RestMethod -Method Post -Uri "http://192.168.1.5:12345" `
   -ContentType "application/json" -Body '{"text":"hello"}'
+
+# 文件上传（multipart，≤64MB，保存目录在「消息」页点「文件」选择）
+curl -F "file=@报告.pdf" http://192.168.1.5:12345/upload
 ```
 
 - 消息会写入「剪切板」页，点击任意一行即可复制全文；默认保留 50 条，可在剪切板页调整
