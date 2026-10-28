@@ -48,8 +48,6 @@ public class MainActivity extends Activity {
     private static final int BLUE_DARK_BOTTOM = 0xFF1A73E8;
     private static final int BLUE_LIGHT_TOP = 0xFF79B4F7;
     private static final int BLUE_LIGHT_BOTTOM = 0xFFA9CDFB;
-    private static final int HEAD_DARK = 0xFF12325C;
-    private static final int HEAD_DARK_SUB = 0xFF3C5A80;
     private static final int BG = 0xFFEEF3FB;
     private static final int CARD = 0xFFFFFFFF;
     private static final int ITEM_BG = 0xFFF5F8FD;
@@ -66,8 +64,6 @@ public class MainActivity extends Activity {
     private RedirectStore redirects;
 
     private LinearLayout header;
-    private TextView titleView;
-    private TextView subtitleView;
     private Button mainBtn;
     private TextView tabMessages;
     private TextView tabBlock;
@@ -213,22 +209,11 @@ public class MainActivity extends Activity {
         rebuildRedirectRows();
     }
 
+    /** 顶部横幅：细条渐变，颜色即运行状态 */
     private LinearLayout buildHeader() {
         LinearLayout h = new LinearLayout(this);
         h.setOrientation(LinearLayout.VERTICAL);
-        h.setPadding(dp(20), dp(14), dp(20), dp(10));
-
-        titleView = new TextView(this);
-        titleView.setText("TinyBlock");
-        titleView.setTextSize(20);
-        titleView.setTypeface(null, Typeface.BOLD);
-        h.addView(titleView);
-
-        subtitleView = new TextView(this);
-        subtitleView.setText("DNS 拦截 · 域名重定向 · 消息通知");
-        subtitleView.setTextSize(11);
-        subtitleView.setPadding(0, dp(1), 0, 0);
-        h.addView(subtitleView);
+        h.setMinimumHeight(dp(16));
         return h;
     }
 
@@ -249,9 +234,12 @@ public class MainActivity extends Activity {
         bar.addView(tabMessages, new LinearLayout.LayoutParams(0, -1, 1f));
 
         mainBtn = new Button(this);
-        mainBtn.setTextSize(0);
+        mainBtn.setText("启动");
+        mainBtn.setTextSize(13);
+        mainBtn.setTypeface(null, Typeface.BOLD);
+        mainBtn.setTextColor(0xFFFFFFFF);
         mainBtn.setAllCaps(false);
-        mainBtn.setElevation(dp(4));
+        mainBtn.setElevation(dp(6));
         mainBtn.setOnClickListener(v -> toggleVpn());
         LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(54), dp(54));
         blp.leftMargin = dp(12);
@@ -328,19 +316,16 @@ public class MainActivity extends Activity {
         swNotify.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_NOTIFY, true));
         swNotify.setOnCheckedChangeListener((b, checked) ->
                 WebhookPrefs.set(this, WebhookPrefs.KEY_NOTIFY, checked));
-        c2.addView(switchRow("消息通知", swNotify));
 
         swSound = new Switch(this);
         swSound.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_SOUND, true));
         swSound.setOnCheckedChangeListener((b, checked) ->
                 WebhookPrefs.set(this, WebhookPrefs.KEY_SOUND, checked));
-        c2.addView(switchRow("声音", swSound));
 
         swVibrate = new Switch(this);
         swVibrate.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_VIBRATE, true));
         swVibrate.setOnCheckedChangeListener((b, checked) ->
                 WebhookPrefs.set(this, WebhookPrefs.KEY_VIBRATE, checked));
-        c2.addView(switchRow("震动", swVibrate));
 
         swFloat = new Switch(this);
         swFloat.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_FLOAT, false));
@@ -354,7 +339,6 @@ public class MainActivity extends Activity {
             }
             WebhookPrefs.set(this, WebhookPrefs.KEY_FLOAT, checked);
         });
-        c2.addView(switchRow("悬浮通知", swFloat));
 
         swRing = new Switch(this);
         swRing.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_RING_LOOP, false));
@@ -365,40 +349,22 @@ public class MainActivity extends Activity {
                         .setAction(BlockVpnService.ACTION_STOP_RING));
             }
         });
-        c2.addView(switchRow("持续响铃", swRing));
 
-        LinearLayout ringRow = new LinearLayout(this);
-        ringRow.setOrientation(LinearLayout.HORIZONTAL);
-        ringRow.setGravity(Gravity.CENTER_VERTICAL);
-        ringRow.setBackground(roundedBox(ITEM_BG, 12));
-        ringRow.setPadding(dp(12), dp(10), dp(12), dp(10));
-        ringRow.setOnClickListener(v -> pickRingtone());
+        // 一排两个：通知 / 声音、震动 / 悬浮、持续响铃 / 自定义铃声
+        LinearLayout g1 = gridRow();
+        g1.addView(switchCell("消息通知", swNotify), cellLp());
+        g1.addView(switchCell("声音", swSound), cellLp());
+        c2.addView(g1);
 
-        TextView ringLabel = new TextView(this);
-        ringLabel.setText("自定义铃声");
-        ringLabel.setTextSize(13);
-        ringLabel.setTextColor(TEXT_MAIN);
-        ringRow.addView(ringLabel, new LinearLayout.LayoutParams(0, -2, 1f));
+        LinearLayout g2 = gridRow();
+        g2.addView(switchCell("震动", swVibrate), cellLp());
+        g2.addView(switchCell("悬浮通知", swFloat), cellLp());
+        c2.addView(g2);
 
-        ringValue = new TextView(this);
-        ringValue.setTextSize(12);
-        ringValue.setTextColor(TEXT_SUB);
-        ringValue.setSingleLine(true);
-        ringValue.setEllipsize(TextUtils.TruncateAt.END);
-        ringValue.setMaxWidth(dp(190));
-        ringRow.addView(ringValue);
-
-        TextView arrow = new TextView(this);
-        arrow.setText("›");
-        arrow.setTextSize(16);
-        arrow.setTextColor(TEXT_SUB);
-        arrow.setPadding(dp(6), 0, 0, 0);
-        ringRow.addView(arrow);
-
-        LinearLayout.MarginLayoutParams ringLp = new LinearLayout.MarginLayoutParams(
-                -1, ViewGroup.LayoutParams.WRAP_CONTENT);
-        ringLp.topMargin = dp(8);
-        c2.addView(ringRow, ringLp);
+        LinearLayout g3 = gridRow();
+        g3.addView(switchCell("持续响铃", swRing), cellLp());
+        g3.addView(ringCell(), cellLp());
+        c2.addView(g3);
         content.addView(c2);
 
         // ===== 消息与剪切板 =====
@@ -429,14 +395,18 @@ public class MainActivity extends Activity {
         LinearLayout c4 = card();
         c4.addView(sectionTitle("权限"));
         c4.addView(note("通知权限影响消息通知；悬浮通知需要悬浮窗权限。"));
-        LinearLayout notifRow = permissionRow("通知权限");
-        notifValue = (TextView) notifRow.getTag();
-        notifRow.setOnClickListener(v -> openNotificationSettings());
-        c4.addView(notifRow);
-        LinearLayout overlayRow = permissionRow("悬浮窗权限");
-        overlayValue = (TextView) overlayRow.getTag();
-        overlayRow.setOnClickListener(v -> openOverlaySettings());
-        c4.addView(overlayRow);
+        LinearLayout prow = gridRow();
+        LinearLayout notifCell = permissionRow("通知权限");
+        notifValue = (TextView) notifCell.getTag();
+        notifCell.setOnClickListener(v -> openNotificationSettings());
+        prow.addView(notifCell, cellLp());
+        LinearLayout overlayCell = permissionRow("悬浮窗权限");
+        overlayValue = (TextView) overlayCell.getTag();
+        overlayCell.setOnClickListener(v -> openOverlaySettings());
+        LinearLayout.LayoutParams olp = cellLp();
+        olp.leftMargin = dp(8);
+        prow.addView(overlayCell, olp);
+        c4.addView(prow);
         content.addView(c4);
 
         // ===== 说明 =====
@@ -461,7 +431,7 @@ public class MainActivity extends Activity {
         // ===== 订阅管理卡片 =====
         LinearLayout c1 = card();
         c1.addView(sectionTitle("订阅管理"));
-        c1.addView(note("添加 AdGuard 黑白名单订阅，支持启用 / 禁用、更新、删除，切换即时生效。"));
+        c1.addView(note("添加 AdGuard 规则订阅，切换即时生效"));
         subListBox = new LinearLayout(this);
         subListBox.setOrientation(LinearLayout.VERTICAL);
         c1.addView(subListBox);
@@ -471,7 +441,7 @@ public class MainActivity extends Activity {
         // ===== 域名重定向卡片 =====
         LinearLayout c2 = card();
         c2.addView(sectionTitle("域名重定向"));
-        c2.addView(note("把指定域名（含子域名）解析到你设定的 IP，支持 IPv4 / IPv6，优先级最高。"));
+        c2.addView(note("域名（含子域名）→ 指定 IP，优先级最高"));
         redirectListBox = new LinearLayout(this);
         redirectListBox.setOrientation(LinearLayout.VERTICAL);
         c2.addView(redirectListBox);
@@ -501,17 +471,17 @@ public class MainActivity extends Activity {
         bg.setCornerRadii(new float[]{0, 0, 0, 0, r, r, r, r});
         header.setBackground(bg);
 
-        int main = serviceRunning ? 0xFFFFFFFF : HEAD_DARK;
-        int sub = serviceRunning ? 0xB3FFFFFF : HEAD_DARK_SUB;
-        titleView.setTextColor(main);
-        subtitleView.setTextColor(sub);
-
-        // 底部圆形启动按钮（相机快门样式）：白圈 + 内圆，未运行蓝色、运行中深蓝
+        // 圆形启动按钮：径向渐变 + 白圈 + 投影营造 3D 感；运行中「启动」两字消失
         GradientDrawable circle = new GradientDrawable();
         circle.setShape(GradientDrawable.OVAL);
-        circle.setColor(serviceRunning ? BLUE_DARK_TOP : BLUE);
+        circle.setGradientType(GradientDrawable.RADIAL_GRADIENT);
+        circle.setGradientRadius(dp(28));
+        circle.setColors(serviceRunning
+                ? new int[]{0xFF1B4FB8, 0xFF072B6E}
+                : new int[]{0xFF2C6FE8, 0xFF0A3D9E});
         circle.setStroke(dp(3), 0xFFFFFFFF);
         mainBtn.setBackground(circle);
+        mainBtn.setText(serviceRunning ? "" : "启动");
         refreshTabs();
     }
 
@@ -582,7 +552,7 @@ public class MainActivity extends Activity {
     private void rebuildSubRows() {
         subListBox.removeAllViews();
         if (subs.list.isEmpty()) {
-            subListBox.addView(empty("暂无订阅。推荐添加 AdGuard DNS 过滤表：\nadguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt"));
+            subListBox.addView(empty("暂无订阅，请在下方添加订阅链接"));
         }
         for (final Subs.Sub s : subs.list) {
             LinearLayout row = itemRow();
@@ -634,7 +604,7 @@ public class MainActivity extends Activity {
     private void rebuildRedirectRows() {
         redirectListBox.removeAllViews();
         if (redirects.list.isEmpty()) {
-            redirectListBox.addView(empty("暂无重定向规则。例如：nas.example.com → 192.168.1.10"));
+            redirectListBox.addView(empty("暂无重定向规则"));
         }
         for (final RedirectStore.Entry e : redirects.list) {
             LinearLayout row = itemRow();
@@ -908,19 +878,63 @@ public class MainActivity extends Activity {
 
     // ------------------------------------------------------------------ 组件
 
-    private LinearLayout switchRow(String label, Switch sw) {
+    /** 两列布局的一行 */
+    private LinearLayout gridRow() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(2), dp(5), dp(2), dp(5));
+        row.setPadding(0, dp(6), 0, 0);
+        return row;
+    }
+
+    private LinearLayout.LayoutParams cellLp() {
+        return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+    }
+
+    private LinearLayout switchCell(String label, Switch sw) {
+        LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.HORIZONTAL);
+        cell.setGravity(Gravity.CENTER_VERTICAL);
+        cell.setPadding(dp(2), dp(5), dp(2), dp(5));
 
         TextView text = new TextView(this);
         text.setText(label);
         text.setTextSize(13);
         text.setTextColor(TEXT_MAIN);
-        row.addView(text, new LinearLayout.LayoutParams(0, -2, 1f));
-        row.addView(sw);
-        return row;
+        cell.addView(text, new LinearLayout.LayoutParams(0, -2, 1f));
+        cell.addView(sw);
+        return cell;
+    }
+
+    private LinearLayout ringCell() {
+        LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.HORIZONTAL);
+        cell.setGravity(Gravity.CENTER_VERTICAL);
+        cell.setPadding(dp(2), dp(5), dp(2), dp(5));
+        cell.setClickable(true);
+        cell.setOnClickListener(v -> pickRingtone());
+
+        TextView label = new TextView(this);
+        label.setText("自定义铃声");
+        label.setTextSize(13);
+        label.setTextColor(TEXT_MAIN);
+        cell.addView(label, new LinearLayout.LayoutParams(0, -2, 1f));
+
+        ringValue = new TextView(this);
+        ringValue.setTextSize(11);
+        ringValue.setTextColor(TEXT_SUB);
+        ringValue.setSingleLine(true);
+        ringValue.setEllipsize(TextUtils.TruncateAt.END);
+        ringValue.setMaxWidth(dp(72));
+        cell.addView(ringValue);
+
+        TextView arrow = new TextView(this);
+        arrow.setText("›");
+        arrow.setTextSize(15);
+        arrow.setTextColor(TEXT_SUB);
+        arrow.setPadding(dp(4), 0, 0, 0);
+        cell.addView(arrow);
+        return cell;
     }
 
     private LinearLayout permissionRow(String label) {
@@ -928,25 +942,20 @@ public class MainActivity extends Activity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setBackground(roundedBox(ITEM_BG, 12));
-        row.setPadding(dp(12), dp(10), dp(12), dp(10));
+        row.setPadding(dp(10), dp(10), dp(10), dp(10));
         row.setClickable(true);
 
         TextView text = new TextView(this);
         text.setText(label);
-        text.setTextSize(13);
+        text.setTextSize(12);
         text.setTextColor(TEXT_MAIN);
         row.addView(text, new LinearLayout.LayoutParams(0, -2, 1f));
 
         TextView value = new TextView(this);
-        value.setTextSize(12);
+        value.setTextSize(11);
         value.setTextColor(TEXT_SUB);
         row.addView(value);
         row.setTag(value);
-
-        LinearLayout.MarginLayoutParams lp = new LinearLayout.MarginLayoutParams(
-                -1, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(8);
-        row.setLayoutParams(lp);
         return row;
     }
 
