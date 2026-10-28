@@ -120,6 +120,12 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        installCrashGuard();
+        File cf = crashFile();
+        if (cf.isFile()) {
+            showCrashReport(cf);
+            return;
+        }
         subs = new Subs(this);
         redirects = new RedirectStore(this);
         buildUi();
@@ -1235,6 +1241,82 @@ public class MainActivity extends Activity {
         g.setColor(color);
         g.setCornerRadius(dp(radiusDp));
         return g;
+    }
+
+    // ------------------------------------------------------------------ 崩溃日志
+
+    private File crashFile() {
+        File dir = getExternalFilesDir(null);
+        return dir == null ? new File(getFilesDir(), "crash.txt") : new File(dir, "crash.txt");
+    }
+
+    /** 崩溃时把堆栈写入 crash.txt，供下次启动展示 */
+    private void installCrashGuard() {
+        final Thread.UncaughtExceptionHandler prev =
+                Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
+            try {
+                java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
+                        new java.io.FileOutputStream(crashFile(), true), "UTF-8"));
+                pw.println("==== " + new java.util.Date() + " ====");
+                e.printStackTrace(pw);
+                pw.close();
+            } catch (Exception ignored) {
+            }
+            if (prev != null) prev.uncaughtException(t, e);
+        });
+    }
+
+    private void showCrashReport(File f) {
+        StringBuilder sb = new StringBuilder();
+        try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(
+                new java.io.FileInputStream(f), "UTF-8"))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                sb.append(line).append('\n');
+                if (sb.length() > 20000) break;
+            }
+        } catch (Exception ignored) {
+        }
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(16), dp(20), dp(16), dp(16));
+
+        TextView t = new TextView(this);
+        t.setText("检测到崩溃日志\n（点「复制日志」发送给开发者；点「清除并继续」尝试正常打开）");
+        t.setTextSize(14);
+        t.setTypeface(null, Typeface.BOLD);
+        t.setTextColor(TEXT_MAIN);
+        root.addView(t);
+
+        TextView body = new TextView(this);
+        body.setText(sb.length() == 0 ? "(日志为空)" : sb.toString());
+        body.setTextSize(11);
+        body.setTextColor(0xFF444444);
+        body.setTextIsSelectable(true);
+        ScrollView sv = new ScrollView(this);
+        sv.addView(body, new ViewGroup.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams svlp = new LinearLayout.LayoutParams(-1, 0, 1f);
+        svlp.topMargin = dp(10);
+        root.addView(sv, svlp);
+
+        LinearLayout btns = new LinearLayout(this);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        Button copy = new Button(this);
+        copy.setText("复制日志");
+        copy.setOnClickListener(v -> copyText(sb.toString()));
+        btns.addView(copy, new LinearLayout.LayoutParams(0, -2, 1f));
+        Button cont = new Button(this);
+        cont.setText("清除并继续");
+        cont.setOnClickListener(v -> {
+            f.delete();
+            recreate();
+        });
+        btns.addView(cont, new LinearLayout.LayoutParams(0, -2, 1f));
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, -2);
+        blp.topMargin = dp(10);
+        root.addView(btns, blp);
+        setContentView(root);
     }
 
     private int dp(float v) {
