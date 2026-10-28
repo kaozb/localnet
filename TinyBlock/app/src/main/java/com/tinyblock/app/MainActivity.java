@@ -43,11 +43,7 @@ public class MainActivity extends Activity {
 
     // ---- 蓝色主题配色 ----
     private static final int BLUE = 0xFF1A73E8;
-    private static final int BLUE_SOFT = 0xFF3B82F6;
-    private static final int BLUE_DARK_TOP = 0xFF0B3FA8;
-    private static final int BLUE_DARK_BOTTOM = 0xFF1A73E8;
-    private static final int BLUE_LIGHT_TOP = 0xFF79B4F7;
-    private static final int BLUE_LIGHT_BOTTOM = 0xFFA9CDFB;
+    private static final int BLUE_DEEP = 0xFF0B3FA8;
     private static final int BG = 0xFFEEF3FB;
     private static final int CARD = 0xFFFFFFFF;
     private static final int ITEM_BG = 0xFFF5F8FD;
@@ -63,7 +59,6 @@ public class MainActivity extends Activity {
     private Subs subs;
     private RedirectStore redirects;
 
-    private LinearLayout header;
     private Button mainBtn;
     private TextView tabMessages;
     private TextView tabBlock;
@@ -176,10 +171,6 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
 
-        header = buildHeader();
-        root.addView(header, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
         pager = new SwipePager(this);
         root.addView(pager, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
@@ -209,14 +200,6 @@ public class MainActivity extends Activity {
         rebuildRedirectRows();
     }
 
-    /** 顶部横幅：细条渐变，颜色即运行状态 */
-    private LinearLayout buildHeader() {
-        LinearLayout h = new LinearLayout(this);
-        h.setOrientation(LinearLayout.VERTICAL);
-        h.setMinimumHeight(dp(16));
-        return h;
-    }
-
     /** 底部导航栏：消息 | 圆形启动按钮 | 拦截 */
     private LinearLayout buildBottomBar() {
         LinearLayout bar = new LinearLayout(this);
@@ -240,6 +223,8 @@ public class MainActivity extends Activity {
         mainBtn.setTextColor(0xFFFFFFFF);
         mainBtn.setAllCaps(false);
         mainBtn.setElevation(dp(6));
+        // 清空系统/厂商主题遗留的背景着色，否则自定义背景会被整体染成主题色
+        mainBtn.setBackgroundTintList(null);
         mainBtn.setOnClickListener(v -> toggleVpn());
         LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(54), dp(54));
         blp.leftMargin = dp(12);
@@ -462,24 +447,17 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------ 头部状态
 
     private void refreshHeader() {
-        GradientDrawable bg = new GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                serviceRunning
-                        ? new int[]{BLUE_DARK_TOP, BLUE_DARK_BOTTOM}
-                        : new int[]{BLUE_LIGHT_TOP, BLUE_LIGHT_BOTTOM});
-        float r = dp(24);
-        bg.setCornerRadii(new float[]{0, 0, 0, 0, r, r, r, r});
-        header.setBackground(bg);
-
-        // 圆形启动按钮：径向渐变 + 白圈 + 投影营造 3D 感；运行中「启动」两字消失
+        // 圆形启动按钮：径向渐变 + 白圈 + 投影营造 3D 感；运行后变纯深蓝、「启动」两字消失
         GradientDrawable circle = new GradientDrawable();
         circle.setShape(GradientDrawable.OVAL);
-        circle.setGradientType(GradientDrawable.RADIAL_GRADIENT);
-        circle.setGradientRadius(dp(28));
-        circle.setColors(serviceRunning
-                ? new int[]{0xFF1B4FB8, 0xFF072B6E}
-                : new int[]{0xFF2C6FE8, 0xFF0A3D9E});
         circle.setStroke(dp(3), 0xFFFFFFFF);
+        if (serviceRunning) {
+            circle.setColor(BLUE_DEEP);
+        } else {
+            circle.setGradientType(GradientDrawable.RADIAL_GRADIENT);
+            circle.setGradientRadius(dp(28));
+            circle.setColors(new int[]{0xFF2C6FE8, 0xFF0A3D9E});
+        }
         mainBtn.setBackground(circle);
         mainBtn.setText(serviceRunning ? "" : "启动");
         refreshTabs();
@@ -1054,6 +1032,7 @@ public class MainActivity extends Activity {
         b.setTextColor(0xFFFFFFFF);
         b.setAllCaps(false);
         b.setBackground(pill(BLUE));
+        b.setBackgroundTintList(null);
         b.setPadding(dp(18), 0, dp(18), 0);
         return b;
     }
