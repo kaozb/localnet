@@ -13,6 +13,10 @@ public final class WebhookPrefs {
     public static final String KEY_VIBRATE = "vibrate";
     public static final String KEY_FLOAT = "floatMsg";
     public static final String KEY_RING_LOOP = "ringLoop";
+    public static final String KEY_BLOCK = "block";       // DNS 拦截总开关
+    public static final String KEY_WEBHOOK = "webhook";   // 消息接收总开关
+    public static final String KEY_KEEP_ON = "keepOn";    // 屏幕常亮
+    public static final String KEY_DARK = "darkTheme";    // 深色主题
 
     private static final String NAME = "webhook";
 

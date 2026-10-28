@@ -38,17 +38,19 @@ public class SwipePager extends HorizontalScrollView {
         setSmoothScrollingEnabled(true);
     }
 
-    public void setPages(View left, View right) {
+    public void setPages(View... pages) {
         removeAllViews();
         int width = Math.max(1, getResources().getDisplayMetrics().widthPixels);
-        // HorizontalScrollView 只允许一个直接子 View：两页放进一个水平容器里并排
-        LinearLayout pages = new LinearLayout(getContext());
-        pages.setOrientation(LinearLayout.HORIZONTAL);
-        pages.addView(left, new LinearLayout.LayoutParams(width, LayoutParams.MATCH_PARENT));
-        pages.addView(right, new LinearLayout.LayoutParams(width, LayoutParams.MATCH_PARENT));
-        pagesContainer = pages;
-        addView(pages, new FrameLayout.LayoutParams(width, LayoutParams.MATCH_PARENT));
-        pageCount = 2;
+        // HorizontalScrollView 只允许一个直接子 View：所有页放进一个水平容器里并排
+        LinearLayout container = new LinearLayout(getContext());
+        container.setOrientation(LinearLayout.HORIZONTAL);
+        for (View v : pages) {
+            container.addView(v, new LinearLayout.LayoutParams(width, LayoutParams.MATCH_PARENT));
+        }
+        pagesContainer = container;
+        pageCount = pages.length;
+        addView(container, new FrameLayout.LayoutParams(width, LayoutParams.MATCH_PARENT));
+        current = Math.min(current, pageCount - 1);
         post(() -> {
             if (getWidth() > 0) {
                 resizePages(getWidth());

@@ -18,12 +18,17 @@ import android.net.Uri;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -41,15 +46,33 @@ import java.util.List;
 
 public class MainActivity extends Activity {
 
-    // ---- 蓝色主题配色 ----
+    // ---- 配色：BLUE 固定，表面色随黑白主题切换 ----
     private static final int BLUE = 0xFF1A73E8;
-    private static final int BG = 0xFFEEF3FB;
-    private static final int CARD = 0xFFFFFFFF;
-    private static final int ITEM_BG = 0xFFF5F8FD;
-    private static final int INPUT_BG = 0xFFF2F5FB;
-    private static final int TEXT_MAIN = 0xFF17233B;
-    private static final int TEXT_SUB = 0xFF7A8699;
-    private static final int RED = 0xFFD93025;
+    private static final int LIGHT_BG = 0xFFEEF3FB;
+    private static final int LIGHT_CARD = 0xFFFFFFFF;
+    private static final int LIGHT_ITEM = 0xFFF5F8FD;
+    private static final int LIGHT_INPUT = 0xFFF2F5FB;
+    private static final int LIGHT_MAIN = 0xFF17233B;
+    private static final int LIGHT_SUB = 0xFF7A8699;
+    private static final int LIGHT_DIVIDER = 0xFFE1E8F2;
+    private static final int LIGHT_RED = 0xFFD93025;
+    private static final int DARK_BG = 0xFF11161F;
+    private static final int DARK_CARD = 0xFF1A2230;
+    private static final int DARK_ITEM = 0xFF243044;
+    private static final int DARK_INPUT = 0xFF1E2839;
+    private static final int DARK_MAIN = 0xFFE8EEF9;
+    private static final int DARK_SUB = 0xFF8B98AD;
+    private static final int DARK_DIVIDER = 0xFF2A3648;
+    private static final int DARK_RED = 0xFFFF7061;
+
+    private int BG;
+    private int CARD;
+    private int ITEM_BG;
+    private int INPUT_BG;
+    private int TEXT_MAIN;
+    private int TEXT_SUB;
+    private int DIVIDER;
+    private int RED;
 
     private static final int REQ_VPN = 1;
     private static final int REQ_NOTIF = 2;
@@ -61,9 +84,15 @@ public class MainActivity extends Activity {
     private Button mainBtn;
     private TextView tabMessages;
     private TextView tabBlock;
+    private TextView tabSettings;
 
     private SwipePager pager;
     private int currentPage = 1;
+
+    private boolean keepOn;
+    private boolean dimmed;
+    private final Handler uiHandler = new Handler(Looper.getMainLooper());
+    private final Runnable dimTask = this::dimScreen;
 
     private EditText portInput;
     private TextView addressView;
@@ -102,6 +131,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        applyTheme();
         installCrashGuard();
         File cf = crashFile();
         if (cf.isFile()) {
@@ -132,10 +162,17 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        applyKeepOn();
         refreshMessageState();
         refreshClipSummary();
         refreshPermissions();
         refreshRingValue();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        uiHandler.removeCallbacks(dimTask);
     }
 
     @Override
@@ -156,8 +193,8 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (pager != null && pager.getCurrentItem() == 0) {
-            pager.setCurrentItem(1, true);
+        if (pager != null && pager.getCurrentItem() > 0) {
+            pager.setCurrentItem(pager.getCurrentItem() - 1, true);
             return;
         }
         super.onBackPressed();
@@ -175,7 +212,7 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
         View divider = new View(this);
-        divider.setBackgroundColor(0xFFE1E8F2);
+        divider.setBackgroundColor(DIVIDER);
         root.addView(divider, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(1)));
 
@@ -184,7 +221,7 @@ public class MainActivity extends Activity {
 
         setContentView(root);
 
-        pager.setPages(buildMessagePage(), buildBlockPage());
+        pager.setPages(buildMessagePage(), buildBlockPage(), buildSettingsPage());
         pager.setOnPageChangeListener(index -> {
             currentPage = index;
             refreshTabs();
@@ -237,6 +274,14 @@ public class MainActivity extends Activity {
         tabBlock.setGravity(Gravity.CENTER);
         tabBlock.setOnClickListener(v -> pager.setCurrentItem(1, true));
         bar.addView(tabBlock, new LinearLayout.LayoutParams(0, -1, 1f));
+
+        tabSettings = new TextView(this);
+        tabSettings.setText("设置");
+        tabSettings.setTextSize(14);
+        tabSettings.setTypeface(null, Typeface.BOLD);
+        tabSettings.setGravity(Gravity.CENTER);
+        tabSettings.setOnClickListener(v -> pager.setCurrentItem(2, true));
+        bar.addView(tabSettings, new LinearLayout.LayoutParams(0, -1, 1f));
         return bar;
     }
 
@@ -443,6 +488,152 @@ public class MainActivity extends Activity {
         return scroll;
     }
 
+    // ------------------------------------------------------------------ 设置页
+
+    private ScrollView buildSettingsPage() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(14), dp(6), dp(14), dp(24));
+        scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
+
+        // ===== 功能开关 =====
+        LinearLayout c1 = card();
+        c1.addView(sectionTitle("功能开关"));
+        c1.addView(note("启动时只启动已打开的功能；运行中切换即时生效。"));
+
+        Switch swHook = new Switch(this);
+        swHook.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true));
+        swHook.setOnCheckedChangeListener((b, checked) -> {
+            WebhookPrefs.set(this, WebhookPrefs.KEY_WEBHOOK, checked);
+            if (serviceRunning) sendReload();
+        });
+
+        Switch swBlock = new Switch(this);
+        swBlock.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_BLOCK, true));
+        swBlock.setOnCheckedChangeListener((b, checked) -> {
+            WebhookPrefs.set(this, WebhookPrefs.KEY_BLOCK, checked);
+            if (serviceRunning) sendReload();
+        });
+
+        LinearLayout g1 = gridRow();
+        g1.addView(switchCell("消息接收", swHook), cellLp());
+        g1.addView(switchCell("DNS 拦截", swBlock), cellLp());
+        c1.addView(g1);
+        content.addView(c1);
+
+        // ===== 显示 =====
+        LinearLayout c2 = card();
+        c2.addView(sectionTitle("显示"));
+
+        Switch swKeep = new Switch(this);
+        swKeep.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_KEEP_ON, false));
+        swKeep.setOnCheckedChangeListener((b, checked) -> {
+            WebhookPrefs.set(this, WebhookPrefs.KEY_KEEP_ON, checked);
+            applyKeepOn();
+        });
+
+        Switch swDark = new Switch(this);
+        swDark.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_DARK, false));
+        swDark.setOnCheckedChangeListener((b, checked) -> {
+            WebhookPrefs.set(this, WebhookPrefs.KEY_DARK, checked);
+            recreate();
+        });
+
+        LinearLayout g2 = gridRow();
+        g2.addView(switchCell("屏幕常亮", swKeep), cellLp());
+        g2.addView(switchCell("深色主题", swDark), cellLp());
+        c2.addView(g2);
+        c2.addView(note("常亮：应用在前台时保持亮屏，1 分钟无操作调至最低亮度，触摸屏幕即恢复。"));
+        content.addView(c2);
+
+        // ===== 说明 =====
+        LinearLayout c3 = card();
+        c3.addView(sectionTitle("说明"));
+        c3.addView(note("· 关闭「消息接收」后启动，不再监听 HTTP 端口\n"
+                + "· 关闭「DNS 拦截」后启动，不建立 VPN、无需 VPN 授权\n"
+                + "· 两个开关都关闭时，启动按钮会提示先开启\n"
+                + "· 运行中打开「DNS 拦截」若未授权过 VPN，将保持仅接收模式\n"
+                + "· 深色主题切换后立即生效"));
+        content.addView(c3);
+        return scroll;
+    }
+
+    // ------------------------------------------------------------------ 主题与屏幕
+
+    /** 按设置切换黑白主题，并同步状态栏颜色与图标深浅 */
+    private void applyTheme() {
+        boolean dark = WebhookPrefs.get(this, WebhookPrefs.KEY_DARK, false);
+        BG = dark ? DARK_BG : LIGHT_BG;
+        CARD = dark ? DARK_CARD : LIGHT_CARD;
+        ITEM_BG = dark ? DARK_ITEM : LIGHT_ITEM;
+        INPUT_BG = dark ? DARK_INPUT : LIGHT_INPUT;
+        TEXT_MAIN = dark ? DARK_MAIN : LIGHT_MAIN;
+        TEXT_SUB = dark ? DARK_SUB : LIGHT_SUB;
+        DIVIDER = dark ? DARK_DIVIDER : LIGHT_DIVIDER;
+        RED = dark ? DARK_RED : LIGHT_RED;
+
+        Window w = getWindow();
+        w.setStatusBarColor(BG);
+        View decor = w.getDecorView();
+        int flags = decor.getSystemUiVisibility();
+        if (dark) {
+            flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+        } else {
+            flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+        }
+        decor.setSystemUiVisibility(flags);
+    }
+
+    /** 屏幕常亮：前台保持亮屏；60 秒无操作调至最低亮度，触摸任意位置恢复 */
+    private void applyKeepOn() {
+        keepOn = WebhookPrefs.get(this, WebhookPrefs.KEY_KEEP_ON, false);
+        Window w = getWindow();
+        if (keepOn) {
+            w.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            scheduleDim();
+        } else {
+            w.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            uiHandler.removeCallbacks(dimTask);
+            restoreBrightness();
+        }
+    }
+
+    private void scheduleDim() {
+        uiHandler.removeCallbacks(dimTask);
+        uiHandler.postDelayed(dimTask, 60_000L);
+    }
+
+    private void dimScreen() {
+        dimmed = true;
+        setBrightness(0.02f);
+    }
+
+    private void restoreBrightness() {
+        dimmed = false;
+        setBrightness(WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE);
+    }
+
+    private void setBrightness(float v) {
+        Window w = getWindow();
+        WindowManager.LayoutParams lp = w.getAttributes();
+        if (lp.screenBrightness == v) return;
+        lp.screenBrightness = v;
+        w.setAttributes(lp);
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (keepOn) {
+            if (dimmed && ev.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                restoreBrightness();
+            }
+            scheduleDim();
+        }
+        return super.dispatchTouchEvent(ev);
+    }
+
     // ------------------------------------------------------------------ 头部状态
 
     private void refreshHeader() {
@@ -463,6 +654,7 @@ public class MainActivity extends Activity {
     private void refreshTabs() {
         styleTab(tabMessages, currentPage == 0);
         styleTab(tabBlock, currentPage == 1);
+        styleTab(tabSettings, currentPage == 2);
     }
 
     private void styleTab(TextView tab, boolean selected) {
@@ -471,6 +663,12 @@ public class MainActivity extends Activity {
 
     private void refreshMessageState() {
         if (portInput == null) return;
+        if (!WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true)) {
+            addressView.setText("消息接收功能已在「设置」页关闭");
+            addressView.setTextColor(TEXT_SUB);
+            portHint.setVisibility(View.GONE);
+            return;
+        }
         if (!portInput.hasFocus()) {
             portInput.setText(String.valueOf(WebhookPrefs.port(this)));
         }
@@ -734,6 +932,12 @@ public class MainActivity extends Activity {
             startService(new Intent(this, BlockVpnService.class).setAction(BlockVpnService.ACTION_STOP));
             return;
         }
+        boolean block = WebhookPrefs.get(this, WebhookPrefs.KEY_BLOCK, true);
+        boolean hook = WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true);
+        if (!block && !hook) {
+            toast("请先在「设置」页打开拦截或消息接收");
+            return;
+        }
         pendingStart = true;
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")
                 != PackageManager.PERMISSION_GRANTED) {
@@ -745,12 +949,15 @@ public class MainActivity extends Activity {
 
     private void startFlow() {
         pendingStart = false;
-        Intent i = VpnService.prepare(this);
-        if (i != null) {
-            startActivityForResult(i, REQ_VPN);
-        } else {
-            startService(new Intent(this, BlockVpnService.class).setAction(BlockVpnService.ACTION_START));
+        // 只启动已打开的功能：拦截关闭时不请求 VPN 授权
+        if (WebhookPrefs.get(this, WebhookPrefs.KEY_BLOCK, true)) {
+            Intent i = VpnService.prepare(this);
+            if (i != null) {
+                startActivityForResult(i, REQ_VPN);
+                return;
+            }
         }
+        startService(new Intent(this, BlockVpnService.class).setAction(BlockVpnService.ACTION_START));
     }
 
     @Override

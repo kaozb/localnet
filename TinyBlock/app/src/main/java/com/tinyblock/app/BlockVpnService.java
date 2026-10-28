@@ -73,6 +73,8 @@ public class BlockVpnService extends VpnService {
     private volatile Thread worker;
     private volatile ExecutorService pool;
     private volatile boolean running = false;
+    /** DNS 拦截开关（设置页）：关闭时 DNS 全部直通上游 */
+    private volatile boolean dnsEnabled = true;
 
     private volatile WebhookServer server;
     private volatile MessageCenter messages;
@@ -103,15 +105,19 @@ public class BlockVpnService extends VpnService {
 
         loadRules();
         if (running) {
-            reloadWebhookIfNeeded();
-            updateNotification();
-            broadcastStatus();
+            applyToggles();
             return START_STICKY;
         }
 
         startForegroundCompat();
-        startTunnel();
+        running = true;
+        dnsEnabled = WebhookPrefs.get(this, WebhookPrefs.KEY_BLOCK, true);
+        if (dnsEnabled) ensureTunnel();
+        if (!running) return START_STICKY; // TUN 建立失败，已自行停止
+        if (WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true)) startWebhook();
         refreshMissingInBackground();
+        updateNotification();
+        broadcastStatus();
         return START_STICKY;
     }
 
@@ -148,7 +154,12 @@ public class BlockVpnService extends VpnService {
         return null;
     }
 
-    private void startTunnel() {
+    /**
+     * 建立 TUN（若尚未建立）。只负责 DNS 通道；
+     * HTTP 消息接收由 startWebhook 独立启动，两者可分别开关。
+     */
+    private void ensureTunnel() {
+        if (tun != null) return;
         Builder b = new Builder()
                 .addAddress(VPN_ADDR4, 32)
                 .addAddress(VPN_ADDR6, 128)
@@ -170,12 +181,18 @@ public class BlockVpnService extends VpnService {
         } catch (Exception ignored) {
         }
         if (fd == null) {
-            stopEverything();
+            // 仅拦截模式建立失败 → 整体停止；接收模式 → 放弃 TUN，保持接收
+            if (server == null) {
+                stopEverything();
+            } else {
+                dnsEnabled = false;
+                updateNotification();
+                broadcastStatus();
+            }
             return;
         }
 
         tun = fd;
-        running = true;
         pool = Executors.newFixedThreadPool(6, r -> {
             Thread t = new Thread(r, "dns-fwd");
             t.setDaemon(true);
@@ -183,7 +200,19 @@ public class BlockVpnService extends VpnService {
         });
         worker = new Thread(this::loop, "tun-reader");
         worker.start();
-        startWebhook();
+    }
+
+    /** 运行中重载：按设置开关启用 / 停用 DNS 拦截与消息接收 */
+    private void applyToggles() {
+        boolean block = WebhookPrefs.get(this, WebhookPrefs.KEY_BLOCK, true);
+        boolean hook = WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true);
+        dnsEnabled = block;
+        if (block) ensureTunnel(); // 关闭时保留 TUN 但 DNS 全部直通，避免频繁建断
+        if (hook) {
+            reloadWebhookIfNeeded();
+        } else {
+            stopWebhook();
+        }
         updateNotification();
         broadcastStatus();
     }
@@ -350,6 +379,11 @@ public class BlockVpnService extends VpnService {
         System.arraycopy(pkt, off + 8, dns, 0, dnsLen);
 
         int sport = u16(pkt, off);
+        // DNS 拦截已关闭：全部直通上游
+        if (!dnsEnabled) {
+            forward(dns, v4, dst, src, sport);
+            return;
+        }
         int opcode = (dns[2] >> 3) & 0xF;
         StringBuilder name = new StringBuilder();
         int qend = parseQuestion(dns, name);
@@ -632,10 +666,21 @@ public class BlockVpnService extends VpnService {
     }
 
     private String notificationText() {
-        String text = "拦截 " + rules.blockCount() + " 条 · 重定向 " + redirects.size() + " 条";
-        if (statePort > 0) text += " · 端口 " + statePort;
-        else if (statePortError != null) text += " · 端口未监听";
-        return text;
+        boolean block = WebhookPrefs.get(this, WebhookPrefs.KEY_BLOCK, true);
+        boolean hook = WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true);
+        StringBuilder sb = new StringBuilder();
+        if (block) {
+            sb.append("拦截 ").append(rules.blockCount()).append(" 条")
+              .append(" · 重定向 ").append(redirects.size()).append(" 条");
+        }
+        if (hook) {
+            if (sb.length() > 0) sb.append(" · ");
+            if (statePort > 0) sb.append("端口 ").append(statePort);
+            else if (statePortError != null) sb.append("端口未监听");
+            else sb.append("接收中");
+        }
+        if (sb.length() == 0) sb.append("运行中");
+        return sb.toString();
     }
 
     private void updateNotification() {
