@@ -499,7 +499,21 @@ public class MainActivity extends Activity {
         // ===== 转发地址 =====
         LinearLayout c1 = card();
         c1.addView(sectionTitle("短信转发"));
-        c1.addView(note("收到短信后按下方地址 POST 转发。URL 与 JSON 中的变量都会替换；JSON 内原样替换，内容含引号时请自行转义。总开关在「设置」页。"));
+
+        Switch swSms = new Switch(this);
+        swSms.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_SMS, false));
+        swSms.setOnCheckedChangeListener((b, checked) -> {
+            WebhookPrefs.set(this, WebhookPrefs.KEY_SMS, checked);
+            if (checked && checkSelfPermission("android.permission.RECEIVE_SMS")
+                    != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{"android.permission.RECEIVE_SMS"}, REQ_SMS);
+            }
+        });
+        LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(-1, -2);
+        sLp.topMargin = dp(4);
+        c1.addView(switchCell("启用短信转发", swSms), sLp);
+
+        c1.addView(note("收到短信后按下方地址 POST 转发。URL 与 JSON 中的变量都会替换；JSON 内原样替换，内容含引号时请自行转义。"));
 
         LinearLayout smsPerm = permissionRow("短信权限");
         smsValue = (TextView) smsPerm.getTag();
@@ -706,22 +720,6 @@ public class MainActivity extends Activity {
         g1.addView(switchCell("消息接收", swHook), cellLp());
         g1.addView(switchCell("DNS 拦截", swBlock), cellLp());
         c1.addView(g1);
-
-        Switch swSms = new Switch(this);
-        swSms.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_SMS, false));
-        swSms.setOnCheckedChangeListener((b, checked) -> {
-            WebhookPrefs.set(this, WebhookPrefs.KEY_SMS, checked);
-            if (checked && checkSelfPermission("android.permission.RECEIVE_SMS")
-                    != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{"android.permission.RECEIVE_SMS"}, REQ_SMS);
-            }
-        });
-
-        LinearLayout gSms = gridRow();
-        LinearLayout.LayoutParams full = cellLp();
-        full.weight = 2f; // 独占整行，开关紧跟标签
-        gSms.addView(switchCell("短信转发", swSms), full);
-        c1.addView(gSms);
         content.addView(c1);
 
         // ===== 显示 =====
@@ -757,7 +755,7 @@ public class MainActivity extends Activity {
                 + "· 关闭「DNS 拦截」后启动，不建立 VPN、无需 VPN 授权\n"
                 + "· 两个开关都关闭时，启动按钮会提示先开启\n"
                 + "· 运行中打开「DNS 拦截」若未授权过 VPN，将保持仅接收模式\n"
-                + "· 短信转发与 VPN 无关，地址在「短信」页配置，需短信权限\n"
+                + "· 短信转发的开关与地址都在「短信」页，需短信权限\n"
                 + "· 深色主题切换后立即生效"));
         content.addView(c3);
         return scroll;
@@ -808,9 +806,17 @@ public class MainActivity extends Activity {
         uiHandler.postDelayed(dimTask, 60_000L);
     }
 
-    /** 60 秒无操作：盖上全屏纯黑遮罩模拟锁屏（非真锁屏），亮度压到最低省电，点击恢复 */
+    /** 60 秒无操作：全屏黑遮罩模拟锁屏（非真锁屏），亮度压到最低省电，点击恢复 */
     private void showLockOverlay() {
         if (lockOverlay != null) return;
+        // 隐藏状态栏和导航栏，让黑遮罩盖住整个屏幕（通知栏也一起隐藏）
+        Window w = getWindow();
+        w.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        w.getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        | View.SYSTEM_UI_FLAG_FULLSCREEN);
+
         FrameLayout overlay = new FrameLayout(this);
         overlay.setBackgroundColor(0xFF000000);
         overlay.setClickable(true);
@@ -828,7 +834,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER));
 
-        ((ViewGroup) getWindow().getDecorView()).addView(overlay, new FrameLayout.LayoutParams(
+        ((ViewGroup) w.getDecorView()).addView(overlay, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         lockOverlay = overlay;
         dimmed = true;
@@ -841,6 +847,9 @@ public class MainActivity extends Activity {
             decor.removeView(lockOverlay);
             lockOverlay = null;
         }
+        Window w = getWindow();
+        w.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        applyTheme(); // 恢复状态栏颜色、图标深浅
         restoreBrightness();
     }
 
