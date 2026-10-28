@@ -29,15 +29,20 @@ public class BlockVpnService extends VpnService {
     public static final String ACTION_START = "com.tinyblock.app.START";
     public static final String ACTION_STOP = "com.tinyblock.app.STOP";
     public static final String ACTION_RELOAD = "com.tinyblock.app.RELOAD";
+    public static final String ACTION_STOP_RING = "com.tinyblock.app.STOP_RING";
     public static final String ACTION_STATUS = "com.tinyblock.app.STATUS";
     public static final String EXTRA_RUNNING = "running";
     public static final String EXTRA_RULES = "rules";
     public static final String EXTRA_REDIRECTS = "redirects";
+    public static final String EXTRA_PORT = "port";
+    public static final String EXTRA_PORT_ERROR = "portError";
 
     // 供 UI 在服务未广播时读取的即时状态
     public static volatile boolean stateRunning = false;
     public static volatile int stateRules = 0;
     public static volatile int stateRedirects = 0;
+    public static volatile int statePort = -1;
+    public static volatile String statePortError = null;
 
     private static final String VPN_ADDR4 = "10.111.222.1";
     private static final String FAKE_DNS4 = "10.111.222.3";
@@ -69,12 +74,23 @@ public class BlockVpnService extends VpnService {
     private volatile ExecutorService pool;
     private volatile boolean running = false;
 
+    private volatile WebhookServer server;
+    private volatile MessageCenter messages;
+    private volatile Alerts alerts;
+    private volatile int serverPort = -1;
+
     @Override
     public synchronized int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent != null && intent.getAction() != null ? intent.getAction() : ACTION_START;
 
         if (ACTION_STOP.equals(action)) {
             stopEverything();
+            return START_NOT_STICKY;
+        }
+        if (ACTION_STOP_RING.equals(action)) {
+            Alerts a = alerts;
+            if (a != null) a.acknowledge();
+            if (!running) stopSelf();
             return START_NOT_STICKY;
         }
         if (ACTION_RELOAD.equals(action) && !running) {
@@ -87,6 +103,7 @@ public class BlockVpnService extends VpnService {
 
         loadRules();
         if (running) {
+            reloadWebhookIfNeeded();
             updateNotification();
             broadcastStatus();
             return START_STICKY;
@@ -115,6 +132,7 @@ public class BlockVpnService extends VpnService {
             byte[] ip = RedirectStore.parseIp(e.ip);
             if (ip != null) redirects.put(e.domain.toLowerCase(), ip);
         }
+        WebhookPrefs.setLastCounts(this, rules.blockCount(), redirects.size());
     }
 
     /** 域名重定向匹配（含子域名），返回 IP 字节，未命中返回 null */
@@ -165,12 +183,14 @@ public class BlockVpnService extends VpnService {
         });
         worker = new Thread(this::loop, "tun-reader");
         worker.start();
+        startWebhook();
         updateNotification();
         broadcastStatus();
     }
 
     private void stopEverything() {
         running = false;
+        stopWebhook();
         ParcelFileDescriptor fd = tun;
         tun = null;
         if (fd != null) try {
@@ -197,7 +217,72 @@ public class BlockVpnService extends VpnService {
     @Override
     public void onDestroy() {
         running = false;
+        stopWebhook();
         super.onDestroy();
+    }
+
+    // ------------------------------------------------------------------ 消息接收
+
+    private void startWebhook() {
+        int port = WebhookPrefs.port(this);
+        if (server != null && server.isRunning() && serverPort == port && server.lastError == null) {
+            return;
+        }
+        stopWebhook();
+        if (alerts == null) alerts = new Alerts(this);
+        if (messages == null) messages = new MessageCenter(this, alerts);
+        serverPort = port;
+
+        WebhookServer s = new WebhookServer(port, new WebhookServer.Listener() {
+            @Override
+            public void onMessage(String text, String body) {
+                MessageCenter m = messages;
+                if (m != null) m.onMessage(text);
+            }
+
+            @Override
+            public void onStarted(int boundPort) {
+                statePort = boundPort;
+                statePortError = null;
+                broadcastStatus();
+                updateNotification();
+            }
+
+            @Override
+            public void onError(String message) {
+                statePort = -1;
+                statePortError = message;
+                broadcastStatus();
+                updateNotification();
+            }
+        });
+        server = s;
+        s.start();
+    }
+
+    private void reloadWebhookIfNeeded() {
+        int port = WebhookPrefs.port(this);
+        WebhookServer s = server;
+        if (s == null || !s.isRunning() || serverPort != port || s.lastError != null) {
+            startWebhook();
+        }
+    }
+
+    private void stopWebhook() {
+        WebhookServer s = server;
+        server = null;
+        serverPort = -1;
+        statePort = -1;
+        statePortError = null;
+        if (s != null) s.stop();
+
+        MessageCenter m = messages;
+        messages = null;
+        if (m != null) m.stop();
+
+        Alerts a = alerts;
+        alerts = null;
+        if (a != null) a.stopAll();
     }
 
     /** 服务启动时补充下载缺失的订阅缓存 */
@@ -510,11 +595,16 @@ public class BlockVpnService extends VpnService {
         stateRunning = running;
         stateRules = rules.blockCount();
         stateRedirects = redirects.size();
+        WebhookServer s = server;
+        statePort = s != null && s.isRunning() ? s.listenPort : -1;
+        statePortError = s == null ? null : s.lastError;
         Intent i = new Intent(ACTION_STATUS);
         i.setPackage(getPackageName());
         i.putExtra(EXTRA_RUNNING, running);
         i.putExtra(EXTRA_RULES, stateRules);
         i.putExtra(EXTRA_REDIRECTS, stateRedirects);
+        i.putExtra(EXTRA_PORT, statePort);
+        i.putExtra(EXTRA_PORT_ERROR, statePortError);
         sendBroadcast(i);
     }
 
@@ -534,11 +624,18 @@ public class BlockVpnService extends VpnService {
             nb = new Notification.Builder(this);
         }
         nb.setSmallIcon(android.R.drawable.ic_secure)
-                .setContentTitle("TinyBlock 拦截运行中")
-                .setContentText("拦截 " + rules.blockCount() + " 条 · 重定向 " + redirects.size() + " 条")
+                .setContentTitle("TinyBlock")
+                .setContentText(notificationText())
                 .setContentIntent(pi)
                 .setOngoing(true);
         return nb.build();
+    }
+
+    private String notificationText() {
+        String text = "拦截 " + rules.blockCount() + " 条 · 重定向 " + redirects.size() + " 条";
+        if (statePort > 0) text += " · 端口 " + statePort;
+        else if (statePortError != null) text += " · 端口未监听";
+        return text;
     }
 
     private void updateNotification() {

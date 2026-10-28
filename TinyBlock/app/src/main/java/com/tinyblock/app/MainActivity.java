@@ -2,17 +2,23 @@ package com.tinyblock.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
 import android.net.Uri;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
@@ -27,12 +33,24 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.Locale;
 
 public class MainActivity extends Activity {
 
     // ---- 蓝色主题配色 ----
     private static final int BLUE = 0xFF1A73E8;
     private static final int BLUE_SOFT = 0xFF3B82F6;
+    private static final int BLUE_DARK_TOP = 0xFF0B3FA8;
+    private static final int BLUE_DARK_BOTTOM = 0xFF1A73E8;
+    private static final int BLUE_LIGHT_TOP = 0xFF79B4F7;
+    private static final int BLUE_LIGHT_BOTTOM = 0xFFA9CDFB;
+    private static final int HEAD_DARK = 0xFF12325C;
+    private static final int HEAD_DARK_SUB = 0xFF3C5A80;
     private static final int BG = 0xFFEEF3FB;
     private static final int CARD = 0xFFFFFFFF;
     private static final int ITEM_BG = 0xFFF5F8FD;
@@ -43,28 +61,59 @@ public class MainActivity extends Activity {
 
     private static final int REQ_VPN = 1;
     private static final int REQ_NOTIF = 2;
+    private static final int REQ_RING = 3;
 
     private Subs subs;
     private RedirectStore redirects;
+
+    private LinearLayout header;
+    private TextView titleView;
+    private TextView subtitleView;
+    private TextView statRules;
+    private TextView statRedirects;
+    private Button mainBtn;
+    private LinearLayout tabBox;
+    private TextView tabMessages;
+    private TextView tabBlock;
+
+    private SwipePager pager;
+    private int currentPage = 1;
+
+    private EditText portInput;
+    private TextView addressView;
+    private TextView portHint;
+    private Switch swNotify;
+    private Switch swSound;
+    private Switch swVibrate;
+    private Switch swFloat;
+    private Switch swRing;
+    private TextView ringValue;
+    private TextView clipSummary;
+    private TextView notifValue;
+    private TextView overlayValue;
+
     private LinearLayout subListBox;
     private LinearLayout redirectListBox;
-    private TextView statusView;
-    private Button mainBtn;
     private EditText subInput;
     private EditText redDomainInput;
     private EditText redIpInput;
+
     private boolean serviceRunning;
     private boolean pendingStart;
     private int ruleCount;
     private int redirectCount;
+    private Ringtone previewTone;
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context c, Intent i) {
             serviceRunning = i.getBooleanExtra(BlockVpnService.EXTRA_RUNNING, false);
-            ruleCount = i.getIntExtra(BlockVpnService.EXTRA_RULES, 0);
-            redirectCount = i.getIntExtra(BlockVpnService.EXTRA_REDIRECTS, 0);
-            showStatus();
+            ruleCount = i.getIntExtra(BlockVpnService.EXTRA_RULES, ruleCount);
+            redirectCount = i.getIntExtra(BlockVpnService.EXTRA_REDIRECTS, redirectCount);
+            BlockVpnService.statePort = i.getIntExtra(BlockVpnService.EXTRA_PORT, -1);
+            BlockVpnService.statePortError = i.getStringExtra(BlockVpnService.EXTRA_PORT_ERROR);
+            refreshHeader();
+            refreshMessageState();
         }
     };
 
@@ -74,10 +123,20 @@ public class MainActivity extends Activity {
         subs = new Subs(this);
         redirects = new RedirectStore(this);
         buildUi();
+
         serviceRunning = BlockVpnService.stateRunning;
-        ruleCount = BlockVpnService.stateRules;
-        redirectCount = BlockVpnService.stateRedirects;
-        showStatus();
+        ruleCount = BlockVpnService.stateRules > 0
+                ? BlockVpnService.stateRules : WebhookPrefs.lastRules(this);
+        redirectCount = countEnabledRedirects();
+        BlockVpnService.statePortError = null;
+
+        refreshHeader();
+        refreshMessageState();
+        refreshClipSummary();
+        refreshRingValue();
+        refreshPermissions();
+        if (ruleCount == 0) recountAsync();
+
         IntentFilter f = new IntentFilter(BlockVpnService.ACTION_STATUS);
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(receiver, f, Context.RECEIVER_NOT_EXPORTED);
@@ -87,81 +146,336 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        refreshMessageState();
+        refreshClipSummary();
+        refreshPermissions();
+        refreshRingValue();
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
         try {
             unregisterReceiver(receiver);
         } catch (Exception ignored) {
         }
+        if (previewTone != null) {
+            try {
+                previewTone.stop();
+            } catch (Exception ignored) {
+            }
+            previewTone = null;
+        }
     }
 
-    private void showStatus() {
-        statusView.setText(serviceRunning
-                ? "● 服务运行中 · 拦截规则 " + ruleCount + " 条 · 重定向 " + redirectCount + " 条"
-                : "○ 服务未运行 · 拦截规则 " + ruleCount + " 条 · 重定向 " + redirectCount + " 条");
-        mainBtn.setText(serviceRunning ? "停止拦截" : "启动拦截");
-        if (serviceRunning) {
-            mainBtn.setTextColor(0xFFFFFFFF);
-            mainBtn.setBackground(pill(0x33FFFFFF));
-        } else {
-            mainBtn.setTextColor(BLUE);
-            mainBtn.setBackground(pill(0xFFFFFFFF));
+    @Override
+    public void onBackPressed() {
+        if (pager != null && pager.getCurrentItem() == 0) {
+            pager.setCurrentItem(1, true);
+            return;
         }
+        super.onBackPressed();
     }
 
     // ------------------------------------------------------------------ 界面搭建
 
     private void buildUi() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        LinearLayout body = new LinearLayout(this);
-        body.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(body, new ViewGroup.LayoutParams(-1, -2));
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(BG);
 
-        // ===== 渐变蓝头部 =====
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable hbg = new GradientDrawable(
-                GradientDrawable.Orientation.TL_BR, new int[]{BLUE, BLUE_SOFT});
-        float hr = dp(24);
-        hbg.setCornerRadii(new float[]{0, 0, 0, 0, hr, hr, hr, hr});
-        header.setBackground(hbg);
-        header.setPadding(dp(20), dp(26), dp(20), dp(24));
+        header = buildHeader();
+        root.addView(header, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        TextView title = new TextView(this);
-        title.setText("TinyBlock");
-        title.setTextSize(24);
-        title.setTypeface(null, Typeface.BOLD);
-        title.setTextColor(0xFFFFFFFF);
-        header.addView(title);
+        pager = new SwipePager(this);
+        root.addView(pager, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        TextView subtitle = new TextView(this);
-        subtitle.setText("AdGuard 订阅拦截 · 域名重定向");
-        subtitle.setTextSize(12);
-        subtitle.setTextColor(0xB3FFFFFF);
-        subtitle.setPadding(0, dp(2), 0, dp(12));
-        header.addView(subtitle);
+        setContentView(root);
 
-        statusView = new TextView(this);
-        statusView.setTextSize(13);
-        statusView.setTextColor(0xFFFFFFFF);
-        header.addView(statusView);
+        pager.setPages(buildMessagePage(), buildBlockPage());
+        pager.setOnPageChangeListener(index -> {
+            currentPage = index;
+            refreshTabs();
+            if (index == 0) {
+                refreshMessageState();
+                refreshClipSummary();
+            }
+        });
+        pager.setCurrentItem(1, false);
+
+        rebuildSubRows();
+        rebuildRedirectRows();
+    }
+
+    private LinearLayout buildHeader() {
+        LinearLayout h = new LinearLayout(this);
+        h.setOrientation(LinearLayout.VERTICAL);
+        h.setPadding(dp(20), dp(24), dp(20), dp(16));
+
+        titleView = new TextView(this);
+        titleView.setText("TinyBlock");
+        titleView.setTextSize(24);
+        titleView.setTypeface(null, Typeface.BOLD);
+        h.addView(titleView);
+
+        subtitleView = new TextView(this);
+        subtitleView.setText("DNS 拦截 · 域名重定向 · 消息通知");
+        subtitleView.setTextSize(12);
+        subtitleView.setPadding(0, dp(2), 0, dp(14));
+        h.addView(subtitleView);
+
+        LinearLayout stats = new LinearLayout(this);
+        stats.setOrientation(LinearLayout.HORIZONTAL);
+
+        statRules = new TextView(this);
+        statRules.setTextSize(13);
+        statRules.setTypeface(null, Typeface.BOLD);
+        statRules.setGravity(Gravity.CENTER);
+        statRules.setPadding(dp(10), dp(7), dp(10), dp(7));
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        stats.addView(statRules, slp);
+
+        statRedirects = new TextView(this);
+        statRedirects.setTextSize(13);
+        statRedirects.setTypeface(null, Typeface.BOLD);
+        statRedirects.setGravity(Gravity.CENTER);
+        statRedirects.setPadding(dp(10), dp(7), dp(10), dp(7));
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        rlp.leftMargin = dp(8);
+        stats.addView(statRedirects, rlp);
+        h.addView(stats);
 
         mainBtn = new Button(this);
         mainBtn.setTextSize(15);
         mainBtn.setTypeface(null, Typeface.BOLD);
         mainBtn.setAllCaps(false);
-        mainBtn.setBackground(pill(0xFFFFFFFF));
         mainBtn.setOnClickListener(v -> toggleVpn());
-        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(-1, dp(48));
+        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(-1, dp(46));
         mlp.topMargin = dp(14);
-        header.addView(mainBtn, mlp);
-        body.addView(header, new ViewGroup.LayoutParams(-1, -2));
+        h.addView(mainBtn, mlp);
 
+        tabBox = new LinearLayout(this);
+        tabBox.setOrientation(LinearLayout.HORIZONTAL);
+        tabBox.setPadding(dp(3), dp(3), dp(3), dp(3));
+
+        tabMessages = new TextView(this);
+        tabMessages.setText("消息");
+        tabMessages.setTextSize(13);
+        tabMessages.setTypeface(null, Typeface.BOLD);
+        tabMessages.setGravity(Gravity.CENTER);
+        tabMessages.setOnClickListener(v -> pager.setCurrentItem(0, true));
+        tabBox.addView(tabMessages, new LinearLayout.LayoutParams(0, dp(30), 1f));
+
+        tabBlock = new TextView(this);
+        tabBlock.setText("拦截");
+        tabBlock.setTextSize(13);
+        tabBlock.setTypeface(null, Typeface.BOLD);
+        tabBlock.setGravity(Gravity.CENTER);
+        tabBlock.setOnClickListener(v -> pager.setCurrentItem(1, true));
+        tabBox.addView(tabBlock, new LinearLayout.LayoutParams(0, dp(30), 1f));
+
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-1,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        tlp.topMargin = dp(10);
+        h.addView(tabBox, tlp);
+        return h;
+    }
+
+    private ScrollView buildMessagePage() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(14), 0, dp(14), dp(24));
-        body.addView(content, new ViewGroup.LayoutParams(-1, -2));
+        content.setPadding(dp(14), dp(10), dp(14), dp(24));
+        scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
+
+        // ===== 消息接收 =====
+        LinearLayout c1 = card();
+        c1.addView(sectionTitle("消息接收"));
+        c1.addView(note("启动后同时开启 DNS 拦截与 HTTP 接收。同一局域网内，向下方地址 POST 消息即可。\n"
+                + "支持 JSON {\"text\":\"...\"}、表单 text=... 或任意纯文本。"));
+
+        LinearLayout portRow = new LinearLayout(this);
+        portRow.setOrientation(LinearLayout.HORIZONTAL);
+        portRow.setGravity(Gravity.CENTER_VERTICAL);
+        portRow.setPadding(0, dp(4), 0, 0);
+
+        portInput = new EditText(this);
+        portInput.setHint("监听端口");
+        portInput.setTextSize(13);
+        portInput.setTextColor(TEXT_MAIN);
+        portInput.setHintTextColor(0xFFA9B4C6);
+        portInput.setBackground(roundedBox(INPUT_BG, 10));
+        portInput.setPadding(dp(12), dp(10), dp(12), dp(10));
+        portInput.setSingleLine(true);
+        portInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+        portRow.addView(portInput, new LinearLayout.LayoutParams(0, -2, 1f));
+
+        Button apply = filledBtn("应用");
+        LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(-2, dp(40));
+        alp.leftMargin = dp(8);
+        portRow.addView(apply, alp);
+        apply.setOnClickListener(v -> applyPort());
+        c1.addView(portRow);
+
+        addressView = new TextView(this);
+        addressView.setTextSize(13);
+        addressView.setPadding(0, dp(8), 0, dp(2));
+        addressView.setOnClickListener(v -> copyText(addressView.getText().toString()));
+        c1.addView(addressView);
+
+        portHint = new TextView(this);
+        portHint.setTextSize(11);
+        portHint.setTextColor(RED);
+        portHint.setPadding(0, dp(2), 0, 0);
+        portHint.setVisibility(View.GONE);
+        c1.addView(portHint);
+        content.addView(c1);
+
+        // ===== 提醒 =====
+        LinearLayout c2 = card();
+        c2.addView(sectionTitle("提醒"));
+        c2.addView(note("可多选。持续响铃最长 60 秒，点通知或悬浮条上的「确认」即可停止。"));
+
+        swNotify = new Switch(this);
+        swNotify.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_NOTIFY, true));
+        swNotify.setOnCheckedChangeListener((b, checked) ->
+                WebhookPrefs.set(this, WebhookPrefs.KEY_NOTIFY, checked));
+        c2.addView(switchRow("消息通知", swNotify));
+
+        swSound = new Switch(this);
+        swSound.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_SOUND, true));
+        swSound.setOnCheckedChangeListener((b, checked) ->
+                WebhookPrefs.set(this, WebhookPrefs.KEY_SOUND, checked));
+        c2.addView(switchRow("声音", swSound));
+
+        swVibrate = new Switch(this);
+        swVibrate.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_VIBRATE, true));
+        swVibrate.setOnCheckedChangeListener((b, checked) ->
+                WebhookPrefs.set(this, WebhookPrefs.KEY_VIBRATE, checked));
+        c2.addView(switchRow("震动", swVibrate));
+
+        swFloat = new Switch(this);
+        swFloat.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_FLOAT, false));
+        swFloat.setOnCheckedChangeListener((b, checked) -> {
+            if (checked && !Settings.canDrawOverlays(this)) {
+                WebhookPrefs.set(this, WebhookPrefs.KEY_FLOAT, false);
+                b.setChecked(false);
+                toast("请先授予悬浮窗权限");
+                openOverlaySettings();
+                return;
+            }
+            WebhookPrefs.set(this, WebhookPrefs.KEY_FLOAT, checked);
+        });
+        c2.addView(switchRow("悬浮通知", swFloat));
+
+        swRing = new Switch(this);
+        swRing.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_RING_LOOP, false));
+        swRing.setOnCheckedChangeListener((b, checked) -> {
+            WebhookPrefs.set(this, WebhookPrefs.KEY_RING_LOOP, checked);
+            if (!checked && serviceRunning) {
+                startService(new Intent(this, BlockVpnService.class)
+                        .setAction(BlockVpnService.ACTION_STOP_RING));
+            }
+        });
+        c2.addView(switchRow("持续响铃", swRing));
+
+        LinearLayout ringRow = new LinearLayout(this);
+        ringRow.setOrientation(LinearLayout.HORIZONTAL);
+        ringRow.setGravity(Gravity.CENTER_VERTICAL);
+        ringRow.setBackground(roundedBox(ITEM_BG, 12));
+        ringRow.setPadding(dp(12), dp(10), dp(12), dp(10));
+        ringRow.setOnClickListener(v -> pickRingtone());
+
+        TextView ringLabel = new TextView(this);
+        ringLabel.setText("自定义铃声");
+        ringLabel.setTextSize(13);
+        ringLabel.setTextColor(TEXT_MAIN);
+        ringRow.addView(ringLabel, new LinearLayout.LayoutParams(0, -2, 1f));
+
+        ringValue = new TextView(this);
+        ringValue.setTextSize(12);
+        ringValue.setTextColor(TEXT_SUB);
+        ringValue.setSingleLine(true);
+        ringValue.setEllipsize(TextUtils.TruncateAt.END);
+        ringValue.setMaxWidth(dp(190));
+        ringRow.addView(ringValue);
+
+        TextView arrow = new TextView(this);
+        arrow.setText("›");
+        arrow.setTextSize(16);
+        arrow.setTextColor(TEXT_SUB);
+        arrow.setPadding(dp(6), 0, 0, 0);
+        ringRow.addView(arrow);
+
+        LinearLayout.MarginLayoutParams ringLp = new LinearLayout.MarginLayoutParams(
+                -1, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ringLp.topMargin = dp(8);
+        c2.addView(ringRow, ringLp);
+        content.addView(c2);
+
+        // ===== 消息与剪切板 =====
+        LinearLayout c3 = card();
+        c3.addView(sectionTitle("消息与剪切板"));
+        clipSummary = new TextView(this);
+        clipSummary.setTextSize(12);
+        clipSummary.setTextColor(TEXT_SUB);
+        clipSummary.setPadding(0, dp(4), 0, dp(8));
+        clipSummary.setLineSpacing(dp(2), 1f);
+        clipSummary.setMaxLines(3);
+        clipSummary.setEllipsize(TextUtils.TruncateAt.END);
+        c3.addView(clipSummary);
+
+        LinearLayout clipBtns = new LinearLayout(this);
+        clipBtns.setOrientation(LinearLayout.HORIZONTAL);
+        clipBtns.setGravity(Gravity.CENTER_VERTICAL);
+        Button open = filledBtn("查看剪切板");
+        open.setOnClickListener(v -> startActivity(new Intent(this, ClipboardActivity.class)));
+        clipBtns.addView(open, new LinearLayout.LayoutParams(-2, dp(40)));
+        Button clear = textBtn("清空消息", RED);
+        clear.setOnClickListener(v -> confirmClearHistory());
+        clipBtns.addView(clear);
+        c3.addView(clipBtns);
+        content.addView(c3);
+
+        // ===== 权限 =====
+        LinearLayout c4 = card();
+        c4.addView(sectionTitle("权限"));
+        c4.addView(note("通知权限影响消息通知；悬浮通知需要悬浮窗权限。"));
+        LinearLayout notifRow = permissionRow("通知权限");
+        notifValue = (TextView) notifRow.getTag();
+        notifRow.setOnClickListener(v -> openNotificationSettings());
+        c4.addView(notifRow);
+        LinearLayout overlayRow = permissionRow("悬浮窗权限");
+        overlayValue = (TextView) overlayRow.getTag();
+        overlayRow.setOnClickListener(v -> openOverlaySettings());
+        c4.addView(overlayRow);
+        content.addView(c4);
+
+        // ===== 说明 =====
+        LinearLayout c5 = card();
+        c5.addView(sectionTitle("说明"));
+        c5.addView(note("· 任意路径、任意方法均可；GET 带 query 也能接收\n"
+                + "· 与 DNS 拦截共用同一个开关，启动后同时生效\n"
+                + "· 端口监听在本机局域网，请勿直接暴露到公网\n"
+                + "· 锁屏后部分系统可能延迟送达，可将本应用加入后台白名单"));
+        content.addView(c5);
+        return scroll;
+    }
+
+    private ScrollView buildBlockPage() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(14), dp(10), dp(14), dp(24));
+        scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
 
         // ===== 订阅管理卡片 =====
         LinearLayout c1 = card();
@@ -191,11 +505,108 @@ public class MainActivity extends Activity {
                 + "· 拦截通过本地 VPN 在 DNS 层完成，其它流量不经过本应用\n"
                 + "· 系统开启「私人 DNS」时可能绕过拦截，建议关闭"));
         content.addView(c3);
-
-        setContentView(scroll);
-        rebuildSubRows();
-        rebuildRedirectRows();
+        return scroll;
     }
+
+    // ------------------------------------------------------------------ 头部状态
+
+    private void refreshHeader() {
+        GradientDrawable bg = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                serviceRunning
+                        ? new int[]{BLUE_DARK_TOP, BLUE_DARK_BOTTOM}
+                        : new int[]{BLUE_LIGHT_TOP, BLUE_LIGHT_BOTTOM});
+        float r = dp(24);
+        bg.setCornerRadii(new float[]{0, 0, 0, 0, r, r, r, r});
+        header.setBackground(bg);
+
+        int main = serviceRunning ? 0xFFFFFFFF : HEAD_DARK;
+        int sub = serviceRunning ? 0xB3FFFFFF : HEAD_DARK_SUB;
+        titleView.setTextColor(main);
+        subtitleView.setTextColor(sub);
+        statRules.setTextColor(main);
+        statRedirects.setTextColor(main);
+        statRules.setText("拦截规则 " + formatCount(ruleCount));
+        statRedirects.setText("重定向 " + formatCount(redirectCount));
+        statRules.setBackground(pill(serviceRunning ? 0x26FFFFFF : 0x1A12325C));
+        statRedirects.setBackground(pill(serviceRunning ? 0x26FFFFFF : 0x1A12325C));
+
+        mainBtn.setText(serviceRunning ? "停止" : "启动");
+        mainBtn.setTextColor(serviceRunning ? 0xFFFFFFFF : BLUE);
+        mainBtn.setBackground(pill(serviceRunning ? 0x33FFFFFF : 0xFFFFFFFF));
+        tabBox.setBackground(pill(serviceRunning ? 0x33FFFFFF : 0x1A12325C));
+        refreshTabs();
+    }
+
+    private void refreshTabs() {
+        styleTab(tabMessages, currentPage == 0);
+        styleTab(tabBlock, currentPage == 1);
+    }
+
+    private void styleTab(TextView tab, boolean selected) {
+        if (selected) {
+            tab.setBackground(pill(0xFFFFFFFF));
+            tab.setTextColor(BLUE);
+        } else {
+            tab.setBackground(pill(0x00000000));
+            tab.setTextColor(serviceRunning ? 0xB3FFFFFF : 0x993C5A80);
+        }
+    }
+
+    private void refreshMessageState() {
+        if (portInput == null) return;
+        if (!portInput.hasFocus()) {
+            portInput.setText(String.valueOf(WebhookPrefs.port(this)));
+        }
+        String ip = localIpv4();
+        int port = WebhookPrefs.port(this);
+        if (ip == null) {
+            addressView.setText("未连接到局域网，连接 Wi‑Fi 或热点后即可接收");
+            addressView.setTextColor(TEXT_SUB);
+        } else {
+            addressView.setText("http://" + ip + ":" + port);
+            addressView.setTextColor(BLUE);
+        }
+
+        String error = BlockVpnService.statePortError;
+        if (error != null && !error.isEmpty()) {
+            portHint.setText(error);
+            portHint.setVisibility(View.VISIBLE);
+        } else {
+            portHint.setVisibility(View.GONE);
+        }
+        refreshPermissions();
+    }
+
+    private void refreshClipSummary() {
+        if (clipSummary == null) return;
+        int total = HistoryStore.count(this);
+        if (total == 0) {
+            clipSummary.setText("还没有收到消息。");
+            return;
+        }
+        List<String[]> last = HistoryStore.load(this, 1);
+        String recent = last.isEmpty() ? "" : oneLine(last.get(0)[1]);
+        clipSummary.setText("共 " + total + " 条消息\n最近：" + recent);
+    }
+
+    private void refreshRingValue() {
+        if (ringValue != null) ringValue.setText(Alerts.ringtoneTitle(this));
+    }
+
+    private void refreshPermissions() {
+        if (notifValue == null) return;
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        boolean notify = nm != null && nm.areNotificationsEnabled();
+        notifValue.setText(notify ? "已开启" : "去开启");
+        notifValue.setTextColor(notify ? TEXT_SUB : RED);
+
+        boolean overlay = Settings.canDrawOverlays(this);
+        overlayValue.setText(overlay ? "已开启" : "去开启");
+        overlayValue.setTextColor(overlay ? TEXT_SUB : RED);
+    }
+
+    // ------------------------------------------------------------------ 订阅 / 重定向
 
     private void rebuildSubRows() {
         subListBox.removeAllViews();
@@ -232,7 +643,7 @@ public class MainActivity extends Activity {
                 s.enabled = checked;
                 subs.save();
                 if (checked) download(s, false, true);
-                else if (serviceRunning) sendReload();
+                else sendReload();
                 rebuildSubRows();
             });
             row.addView(sw);
@@ -282,7 +693,7 @@ public class MainActivity extends Activity {
                 e.enabled = checked;
                 redirects.save();
                 rebuildRedirectRows();
-                if (serviceRunning) sendReload();
+                sendReload();
             });
             row.addView(sw);
 
@@ -292,7 +703,7 @@ public class MainActivity extends Activity {
                 redirects.save();
                 rebuildRedirectRows();
                 toast("已删除 " + e.domain);
-                if (serviceRunning) sendReload();
+                sendReload();
             });
             row.addView(del);
 
@@ -300,7 +711,294 @@ public class MainActivity extends Activity {
         }
     }
 
-    // ------------------------------------------------------------------ 行/卡片构件
+    // ------------------------------------------------------------------ 操作
+
+    private void addSub() {
+        String url = subInput.getText().toString().trim();
+        if (url.length() < 9 || !(url.startsWith("http://") || url.startsWith("https://"))) {
+            toast("请输入 http(s):// 开头的订阅链接");
+            return;
+        }
+        for (Subs.Sub s : subs.list) {
+            if (s.url.equals(url)) {
+                toast("该订阅已存在");
+                return;
+            }
+        }
+        Subs.Sub s = new Subs.Sub(url, true);
+        subs.list.add(s);
+        subs.save();
+        subInput.setText("");
+        rebuildSubRows();
+        download(s, true, true);
+    }
+
+    private void confirmDeleteSub(final Subs.Sub s) {
+        new AlertDialog.Builder(this)
+                .setTitle("删除订阅")
+                .setMessage(hostOf(s.url))
+                .setPositiveButton("删除", (d, w) -> {
+                    subs.list.remove(s);
+                    subs.save();
+                    Subs.fileFor(this, s.url).delete();
+                    rebuildSubRows();
+                    sendReload();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void addRedirect() {
+        String domain = redDomainInput.getText().toString().trim().toLowerCase();
+        String ip = redIpInput.getText().toString().trim();
+        if (!validDomain(domain)) {
+            toast("请输入合法域名（a-z、0-9、.、-）");
+            return;
+        }
+        if (RedirectStore.parseIp(ip) == null) {
+            toast("请输入合法的 IPv4 / IPv6 地址");
+            return;
+        }
+        boolean updated = false;
+        for (RedirectStore.Entry e : redirects.list) {
+            if (e.domain.equals(domain)) {
+                e.ip = ip;
+                e.enabled = true;
+                updated = true;
+                break;
+            }
+        }
+        if (!updated) redirects.list.add(new RedirectStore.Entry(domain, ip, true));
+        redirects.save();
+        redDomainInput.setText("");
+        redIpInput.setText("");
+        rebuildRedirectRows();
+        toast(updated ? "已更新重定向规则" : "已添加重定向规则");
+        sendReload();
+    }
+
+    private static boolean validDomain(String d) {
+        if (d.isEmpty() || d.length() > 253) return false;
+        for (int i = 0; i < d.length(); i++) {
+            char c = d.charAt(i);
+            if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+                    || c == '.' || c == '-' || c == '_')) return false;
+        }
+        return true;
+    }
+
+    /** @param force true=强制重新下载；false=仅缺文件时下载 */
+    private void download(final Subs.Sub s, boolean force, boolean reloadAfter) {
+        File f = Subs.fileFor(this, s.url);
+        if (!force && f.isFile() && f.length() > 0) {
+            if (reloadAfter) sendReload();
+            return;
+        }
+        if (force) toast("正在更新：" + hostOf(s.url));
+        new Thread(() -> {
+            try {
+                int n = Subs.download(this, s.url);
+                runOnUiThread(() -> {
+                    toast("下载成功，共 " + n + " 行规则");
+                    rebuildSubRows();
+                    if (reloadAfter) sendReload();
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> toast("下载失败：" + e.getMessage()));
+            }
+        }, "download").start();
+    }
+
+    private void sendReload() {
+        startService(new Intent(this, BlockVpnService.class).setAction(BlockVpnService.ACTION_RELOAD));
+    }
+
+    private void toggleVpn() {
+        if (serviceRunning) {
+            startService(new Intent(this, BlockVpnService.class).setAction(BlockVpnService.ACTION_STOP));
+            return;
+        }
+        pendingStart = true;
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, REQ_NOTIF);
+            return;
+        }
+        startFlow();
+    }
+
+    private void startFlow() {
+        pendingStart = false;
+        Intent i = VpnService.prepare(this);
+        if (i != null) {
+            startActivityForResult(i, REQ_VPN);
+        } else {
+            startService(new Intent(this, BlockVpnService.class).setAction(BlockVpnService.ACTION_START));
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
+        if (code == REQ_NOTIF && pendingStart) startFlow();
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req == REQ_VPN) {
+            if (res == RESULT_OK) {
+                startService(new Intent(this, BlockVpnService.class).setAction(BlockVpnService.ACTION_START));
+            } else {
+                pendingStart = false;
+                toast("未授权 VPN，已取消启动");
+            }
+        } else if (req == REQ_RING) {
+            Uri uri = data == null ? null
+                    : data.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI);
+            if (uri == null) {
+                WebhookPrefs.setRingtone(this, "");
+            } else {
+                WebhookPrefs.setRingtone(this, uri.toString());
+                try {
+                    getContentResolver().takePersistableUriPermission(uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                } catch (Exception ignored) {
+                }
+            }
+            refreshRingValue();
+            previewRingtone();
+        }
+    }
+
+    private void applyPort() {
+        int port;
+        try {
+            port = Integer.parseInt(portInput.getText().toString().trim());
+        } catch (Exception e) {
+            toast("请输入端口号");
+            return;
+        }
+        if (port < 1024 || port > 65535) {
+            toast("端口范围 1024–65535");
+            return;
+        }
+        WebhookPrefs.setPort(this, port);
+        portInput.clearFocus();
+        toast("端口已保存：" + port);
+        refreshMessageState();
+        sendReload();
+    }
+
+    private void pickRingtone() {
+        Intent it = new Intent(RingtoneManager.ACTION_RINGTONE_PICKER);
+        it.putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION);
+        it.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true);
+        it.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true);
+        it.putExtra(RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI,
+                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION));
+        String current = WebhookPrefs.ringtone(this);
+        if (current != null && !current.isEmpty()) {
+            it.putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(current));
+        }
+        try {
+            startActivityForResult(it, REQ_RING);
+        } catch (Exception e) {
+            toast("无法打开铃声选择器");
+        }
+    }
+
+    private void previewRingtone() {
+        String value = WebhookPrefs.ringtone(this);
+        if (value == null || value.isEmpty()) return;
+        try {
+            previewTone = RingtoneManager.getRingtone(this, Uri.parse(value));
+            if (previewTone != null) previewTone.play();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void confirmClearHistory() {
+        int total = HistoryStore.count(this);
+        if (total == 0) {
+            toast("暂无消息");
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("清空消息")
+                .setMessage("将删除全部 " + total + " 条消息记录，无法恢复。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("清空", (d, w) -> {
+                    HistoryStore.clear(this);
+                    refreshClipSummary();
+                    toast("已清空");
+                })
+                .show();
+    }
+
+    private void recountAsync() {
+        new Thread(() -> {
+            Rules tmp = new Rules();
+            Subs s = new Subs(this);
+            for (Subs.Sub item : s.list) {
+                if (!item.enabled) continue;
+                File f = Subs.fileFor(this, item.url);
+                if (f.isFile()) tmp.loadFile(f.getAbsolutePath());
+            }
+            int rules = tmp.blockCount();
+            int reds = countEnabledRedirects();
+            runOnUiThread(() -> {
+                if (serviceRunning) return;
+                ruleCount = rules;
+                redirectCount = reds;
+                WebhookPrefs.setLastCounts(this, rules, reds);
+                refreshHeader();
+            });
+        }, "recount").start();
+    }
+
+    // ------------------------------------------------------------------ 组件
+
+    private LinearLayout switchRow(String label, Switch sw) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(2), dp(5), dp(2), dp(5));
+
+        TextView text = new TextView(this);
+        text.setText(label);
+        text.setTextSize(13);
+        text.setTextColor(TEXT_MAIN);
+        row.addView(text, new LinearLayout.LayoutParams(0, -2, 1f));
+        row.addView(sw);
+        return row;
+    }
+
+    private LinearLayout permissionRow(String label) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setBackground(roundedBox(ITEM_BG, 12));
+        row.setPadding(dp(12), dp(10), dp(12), dp(10));
+        row.setClickable(true);
+
+        TextView text = new TextView(this);
+        text.setText(label);
+        text.setTextSize(13);
+        text.setTextColor(TEXT_MAIN);
+        row.addView(text, new LinearLayout.LayoutParams(0, -2, 1f));
+
+        TextView value = new TextView(this);
+        value.setTextSize(12);
+        value.setTextColor(TEXT_SUB);
+        row.addView(value);
+        row.setTag(value);
+
+        LinearLayout.MarginLayoutParams lp = new LinearLayout.MarginLayoutParams(
+                -1, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(8);
+        row.setLayoutParams(lp);
+        return row;
+    }
 
     private LinearLayout card() {
         LinearLayout c = new LinearLayout(this);
@@ -444,146 +1142,73 @@ public class MainActivity extends Activity {
         return wrap;
     }
 
-    // ------------------------------------------------------------------ 操作
+    // ------------------------------------------------------------------ 权限跳转
 
-    private void addSub() {
-        String url = subInput.getText().toString().trim();
-        if (url.length() < 9 || !(url.startsWith("http://") || url.startsWith("https://"))) {
-            toast("请输入 http(s):// 开头的订阅链接");
-            return;
-        }
-        for (Subs.Sub s : subs.list) {
-            if (s.url.equals(url)) {
-                toast("该订阅已存在");
-                return;
-            }
-        }
-        Subs.Sub s = new Subs.Sub(url, true);
-        subs.list.add(s);
-        subs.save();
-        subInput.setText("");
-        rebuildSubRows();
-        download(s, true, true);
-    }
-
-    private void confirmDeleteSub(final Subs.Sub s) {
-        new AlertDialog.Builder(this)
-                .setTitle("删除订阅")
-                .setMessage(hostOf(s.url))
-                .setPositiveButton("删除", (d, w) -> {
-                    subs.list.remove(s);
-                    subs.save();
-                    Subs.fileFor(this, s.url).delete();
-                    rebuildSubRows();
-                    if (serviceRunning) sendReload();
-                })
-                .setNegativeButton("取消", null)
-                .show();
-    }
-
-    private void addRedirect() {
-        String domain = redDomainInput.getText().toString().trim().toLowerCase();
-        String ip = redIpInput.getText().toString().trim();
-        if (!validDomain(domain)) {
-            toast("请输入合法域名（a-z、0-9、.、-）");
-            return;
-        }
-        if (RedirectStore.parseIp(ip) == null) {
-            toast("请输入合法的 IPv4 / IPv6 地址");
-            return;
-        }
-        boolean updated = false;
-        for (RedirectStore.Entry e : redirects.list) {
-            if (e.domain.equals(domain)) {
-                e.ip = ip;
-                e.enabled = true;
-                updated = true;
-                break;
-            }
-        }
-        if (!updated) redirects.list.add(new RedirectStore.Entry(domain, ip, true));
-        redirects.save();
-        redDomainInput.setText("");
-        redIpInput.setText("");
-        rebuildRedirectRows();
-        toast(updated ? "已更新重定向规则" : "已添加重定向规则");
-        if (serviceRunning) sendReload();
-    }
-
-    private static boolean validDomain(String d) {
-        if (d.isEmpty() || d.length() > 253) return false;
-        for (int i = 0; i < d.length(); i++) {
-            char c = d.charAt(i);
-            if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
-                    || c == '.' || c == '-' || c == '_')) return false;
-        }
-        return true;
-    }
-
-    /** @param force true=强制重新下载；false=仅缺文件时下载 */
-    private void download(final Subs.Sub s, boolean force, boolean reloadAfter) {
-        File f = Subs.fileFor(this, s.url);
-        if (!force && f.isFile() && f.length() > 0) {
-            if (reloadAfter && serviceRunning) sendReload();
-            return;
-        }
-        if (force) toast("正在更新：" + hostOf(s.url));
-        new Thread(() -> {
-            try {
-                int n = Subs.download(this, s.url);
-                runOnUiThread(() -> {
-                    toast("下载成功，共 " + n + " 行规则");
-                    rebuildSubRows();
-                    if (reloadAfter && serviceRunning) sendReload();
-                });
-            } catch (Exception e) {
-                runOnUiThread(() -> toast("下载失败：" + e.getMessage()));
-            }
-        }, "download").start();
-    }
-
-    private void sendReload() {
-        startService(new Intent(this, BlockVpnService.class).setAction(BlockVpnService.ACTION_RELOAD));
-    }
-
-    private void toggleVpn() {
-        if (serviceRunning) {
-            startService(new Intent(this, BlockVpnService.class).setAction(BlockVpnService.ACTION_STOP));
-            return;
-        }
-        pendingStart = true;
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")
-                != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, REQ_NOTIF);
-            return;
-        }
-        startFlow();
-    }
-
-    private void startFlow() {
-        pendingStart = false;
-        Intent i = VpnService.prepare(this);
-        if (i != null) {
-            startActivityForResult(i, REQ_VPN);
-        } else {
-            startService(new Intent(this, BlockVpnService.class).setAction(BlockVpnService.ACTION_START));
+    private void openNotificationSettings() {
+        try {
+            startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName()));
+        } catch (Exception e) {
+            toast("无法打开通知设置");
         }
     }
 
-    @Override
-    public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
-        if (code == REQ_NOTIF && pendingStart) startFlow();
-    }
-
-    @Override
-    protected void onActivityResult(int req, int res, Intent data) {
-        super.onActivityResult(req, res, data);
-        if (req == REQ_VPN && res == RESULT_OK) {
-            startService(new Intent(this, BlockVpnService.class).setAction(BlockVpnService.ACTION_START));
+    private void openOverlaySettings() {
+        try {
+            startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName())));
+        } catch (Exception e) {
+            toast("无法打开悬浮窗设置");
         }
     }
 
     // ------------------------------------------------------------------ 工具
+
+    private int countEnabledRedirects() {
+        int n = 0;
+        for (RedirectStore.Entry e : redirects.list) {
+            if (e.enabled && RedirectStore.parseIp(e.ip) != null) n++;
+        }
+        return n;
+    }
+
+    private String localIpv4() {
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface ni = interfaces.nextElement();
+                if (!ni.isUp() || ni.isLoopback()) continue;
+                Enumeration<InetAddress> addresses = ni.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress address = addresses.nextElement();
+                    if (address instanceof Inet4Address && address.isSiteLocalAddress()) {
+                        return address.getHostAddress();
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private void copyText(String text) {
+        try {
+            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(ClipData.newPlainText("TinyBlock", text));
+            toast("已复制");
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static String oneLine(String text) {
+        if (text == null) return "";
+        String s = text.replace('\n', ' ').trim();
+        return s.length() > 80 ? s.substring(0, 80) + "…" : s;
+    }
+
+    private static String formatCount(int n) {
+        return String.format(Locale.getDefault(), "%,d", n);
+    }
 
     private static String hostOf(String url) {
         try {
