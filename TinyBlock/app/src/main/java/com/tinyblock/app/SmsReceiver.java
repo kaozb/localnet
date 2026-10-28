@@ -37,6 +37,7 @@ public class SmsReceiver extends BroadcastReceiver {
             if (m.getTimestampMillis() > 0) time = m.getTimestampMillis();
         }
         if (body.length() == 0) return;
-        SmsForwarder.forward(template, sender == null ? "" : sender, body.toString(), time);
+        SmsForwarder.forward(template, WebhookPrefs.smsBody(context),
+                sender == null ? "" : sender, body.toString(), time);
     }
 }

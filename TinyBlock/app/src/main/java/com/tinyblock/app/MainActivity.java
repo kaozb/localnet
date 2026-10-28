@@ -115,6 +115,7 @@ public class MainActivity extends Activity {
     private EditText redDomainInput;
     private EditText redIpInput;
     private EditText smsInput;
+    private EditText smsBodyInput;
     private TextView smsValue;
 
     private boolean serviceRunning;
@@ -178,6 +179,21 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         uiHandler.removeCallbacks(dimTask);
+        restoreBrightness();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (!keepOn) return;
+        if (hasFocus) {
+            scheduleDim();
+        } else {
+            // 下拉状态栏 / 切到其他应用时立即恢复默认亮度：
+            // 窗口级亮度覆盖会压住系统亮度调节，必须及时撤掉
+            uiHandler.removeCallbacks(dimTask);
+            restoreBrightness();
+        }
     }
 
     @Override
@@ -241,7 +257,7 @@ public class MainActivity extends Activity {
         rebuildRedirectRows();
     }
 
-    /** 底部导航栏：消息 | 圆形启动按钮 | 拦截 */
+    /** 底部导航栏：消息 | 短信 | 圆形启动按钮 | 拦截 | 设置 */
     private LinearLayout buildBottomBar() {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
@@ -257,6 +273,14 @@ public class MainActivity extends Activity {
         tabMessages.setOnClickListener(v -> pager.setCurrentItem(0, true));
         bar.addView(tabMessages, new LinearLayout.LayoutParams(0, -1, 1f));
 
+        tabSms = new TextView(this);
+        tabSms.setText("短信");
+        tabSms.setTextSize(14);
+        tabSms.setTypeface(null, Typeface.BOLD);
+        tabSms.setGravity(Gravity.CENTER);
+        tabSms.setOnClickListener(v -> pager.setCurrentItem(1, true));
+        bar.addView(tabSms, new LinearLayout.LayoutParams(0, -1, 1f));
+
         mainBtn = new Button(this);
         mainBtn.setText("启动");
         mainBtn.setTextSize(13);
@@ -271,14 +295,6 @@ public class MainActivity extends Activity {
         blp.leftMargin = dp(12);
         blp.rightMargin = dp(12);
         bar.addView(mainBtn, blp);
-
-        tabSms = new TextView(this);
-        tabSms.setText("短信");
-        tabSms.setTextSize(14);
-        tabSms.setTypeface(null, Typeface.BOLD);
-        tabSms.setGravity(Gravity.CENTER);
-        tabSms.setOnClickListener(v -> pager.setCurrentItem(1, true));
-        bar.addView(tabSms, new LinearLayout.LayoutParams(0, -1, 1f));
 
         tabBlock = new TextView(this);
         tabBlock.setText("拦截");
@@ -475,7 +491,7 @@ public class MainActivity extends Activity {
         // ===== 转发地址 =====
         LinearLayout c1 = card();
         c1.addView(sectionTitle("短信转发"));
-        c1.addView(note("收到短信后按下方地址 GET 转发，变量自动 URL 编码。总开关在「设置」页。"));
+        c1.addView(note("收到短信后按下方地址 POST 转发。URL 与 JSON 中的变量都会替换；JSON 内原样替换，内容含引号时请自行转义。总开关在「设置」页。"));
 
         LinearLayout smsPerm = permissionRow("短信权限");
         smsValue = (TextView) smsPerm.getTag();
@@ -488,19 +504,54 @@ public class MainActivity extends Activity {
         c1.addView(smsPerm);
 
         smsInput = new EditText(this);
-        smsInput.setHint("转发地址，如 http://192.168.1.5:8000/sms?from={sender}&text={content}");
+        smsInput.setHint("POST 地址，如 http://192.168.1.5:8000/sms");
         smsInput.setTextSize(13);
         smsInput.setTextColor(TEXT_MAIN);
         smsInput.setHintTextColor(TEXT_SUB);
         smsInput.setBackground(roundedBox(INPUT_BG, 10));
         smsInput.setPadding(dp(12), dp(10), dp(12), dp(10));
-        smsInput.setMinLines(2);
-        smsInput.setMaxLines(4);
-        smsInput.setGravity(Gravity.TOP);
+        smsInput.setMaxLines(2);
         smsInput.setText(WebhookPrefs.smsUrl(this));
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, -2);
         slp.topMargin = dp(10);
         c1.addView(smsInput, slp);
+
+        smsBodyInput = new EditText(this);
+        smsBodyInput.setHint("JSON 内容，如 {\"sender\":\"{sender}\",\"content\":\"{content}\"}");
+        smsBodyInput.setTextSize(13);
+        smsBodyInput.setTypeface(Typeface.MONOSPACE);
+        smsBodyInput.setTextColor(TEXT_MAIN);
+        smsBodyInput.setHintTextColor(TEXT_SUB);
+        smsBodyInput.setBackground(roundedBox(INPUT_BG, 10));
+        smsBodyInput.setPadding(dp(12), dp(10), dp(12), dp(10));
+        smsBodyInput.setMinLines(3);
+        smsBodyInput.setMaxLines(6);
+        smsBodyInput.setGravity(Gravity.TOP);
+        smsBodyInput.setText(WebhookPrefs.smsBody(this));
+        LinearLayout.LayoutParams jlp = new LinearLayout.LayoutParams(-1, -2);
+        jlp.topMargin = dp(8);
+        c1.addView(smsBodyInput, jlp);
+
+        // 变量按钮：点击插入到 JSON 输入框光标处
+        LinearLayout vars = new LinearLayout(this);
+        vars.setOrientation(LinearLayout.HORIZONTAL);
+        String[] varNames = {"{content}", "{sender}", "{time}", "{date}"};
+        for (final String v : varNames) {
+            TextView chip = new TextView(this);
+            chip.setText(v);
+            chip.setTextSize(12);
+            chip.setTextColor(BLUE);
+            chip.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+            chip.setGravity(Gravity.CENTER);
+            chip.setBackground(roundedBox(ITEM_BG, 14));
+            chip.setPadding(dp(10), dp(5), dp(10), dp(5));
+            chip.setOnClickListener(x -> insertVar(v));
+            LinearLayout.LayoutParams vlp = new LinearLayout.LayoutParams(-2, -2);
+            vlp.rightMargin = dp(8);
+            vlp.topMargin = dp(10);
+            vars.addView(chip, vlp);
+        }
+        c1.addView(vars);
 
         LinearLayout btns = new LinearLayout(this);
         btns.setOrientation(LinearLayout.HORIZONTAL);
@@ -508,7 +559,8 @@ public class MainActivity extends Activity {
         Button apply = filledBtn("应用");
         apply.setOnClickListener(v -> {
             WebhookPrefs.setSmsUrl(this, smsInput.getText().toString().trim());
-            toast(WebhookPrefs.smsUrl(this).isEmpty() ? "已清空转发地址" : "已保存转发地址");
+            WebhookPrefs.setSmsBody(this, smsBodyInput.getText().toString());
+            toast(WebhookPrefs.smsUrl(this).isEmpty() ? "已清空转发地址" : "已保存转发配置");
         });
         btns.addView(apply, new LinearLayout.LayoutParams(-2, dp(40)));
         Button test = textBtn("发送测试", BLUE);
@@ -523,9 +575,20 @@ public class MainActivity extends Activity {
         LinearLayout c2 = card();
         c2.addView(sectionTitle("可用变量"));
         c2.addView(note("{content} 短信内容\n{sender} 发件人号码\n"
-                + "{time} 秒级时间戳\n{date} yyyy-MM-dd HH:mm:ss"));
+                + "{time} 秒级时间戳\n{date} yyyy-MM-dd HH:mm:ss\n\n"
+                + "URL 中的变量会 URL 编码；JSON 中原样替换。"
+                + "JSON 留空时使用默认模板：\n"
+                + "{\"sender\":\"{sender}\",\"content\":\"{content}\",\"time\":{time},\"date\":\"{date}\"}"));
         content.addView(c2);
         return scroll;
+    }
+
+    /** 把变量插入 JSON 输入框的光标处 */
+    private void insertVar(String var) {
+        if (smsBodyInput == null) return;
+        int start = Math.max(0, smsBodyInput.getSelectionStart());
+        int end = Math.max(start, smsBodyInput.getSelectionEnd());
+        smsBodyInput.getText().replace(start, end, var);
     }
 
     private void sendSmsTest() {
@@ -535,11 +598,18 @@ public class MainActivity extends Activity {
             toast("请先填写并应用转发地址");
             return;
         }
+        String tpl = smsBodyInput.getText().toString().trim();
+        String json = SmsForwarder.expandRaw(tpl.isEmpty()
+                        ? "{\"sender\":\"{sender}\",\"content\":\"{content}\",\"time\":{time},\"date\":\"{date}\"}"
+                        : tpl,
+                "10086", "这是一条测试短信", System.currentTimeMillis());
+        if (json == null) json = "{}";
         toast("发送中…");
         final String u = url;
+        final String j = json;
         new Thread(() -> {
             try {
-                int code = SmsForwarder.httpGet(u);
+                int code = SmsForwarder.httpPostJson(u, j);
                 runOnUiThread(() -> toast(code < 400 ? "测试发送成功（HTTP " + code + "）"
                         : "服务器返回 HTTP " + code));
             } catch (Exception e) {

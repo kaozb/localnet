@@ -76,6 +76,15 @@ public final class WebhookPrefs {
         p(c).edit().putString("smsUrl", v == null ? "" : v.trim()).apply();
     }
 
+    /** 短信转发 JSON body 模板，变量原样替换（不做 URL 编码） */
+    public static String smsBody(Context c) {
+        return p(c).getString("smsBody", "");
+    }
+
+    public static void setSmsBody(Context c, String v) {
+        p(c).edit().putString("smsBody", v == null ? "" : v).apply();
+    }
+
     /** 供界面在服务未广播时先显示上次的计数 */
     public static int lastRules(Context c) {
         return p(c).getInt("lastRules", 0);
