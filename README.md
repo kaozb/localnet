@@ -149,7 +149,8 @@ curl "http://192.168.1.5:12345/?text=hello"
 Invoke-RestMethod -Method Post -Uri "http://192.168.1.5:12345" `
   -ContentType "application/json" -Body '{"text":"hello"}'
 
-# 文件上传（multipart，≤64MB，保存目录在「消息」页点「文件」选择）
+# 文件上传（≤64MB，保存目录在「消息」页点「文件」选择）
+# 浏览器直接打开 http://IP:端口/upload —— 一个按钮，选完文件即传
 curl -F "file=@报告.pdf" http://192.168.1.5:12345/upload
 ```
 

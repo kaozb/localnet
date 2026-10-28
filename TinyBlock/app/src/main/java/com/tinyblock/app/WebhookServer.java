@@ -174,6 +174,11 @@ public class WebhookServer {
                 handleMultipart(out, ctype, body, read);
                 return;
             }
+            // 浏览器访问 /upload：返回极简上传页
+            if (read == 0 && path.toLowerCase().startsWith("/upload")) {
+                respond(out, 200, "text/html; charset=utf-8", UPLOAD_PAGE);
+                return;
+            }
 
             String text = extractText(headers, bodyText, path);
             if (text == null || text.trim().isEmpty()) {
@@ -199,6 +204,21 @@ public class WebhookServer {
     }
 
     // ------------------------------------------------------------------ 文件上传
+
+    /** 极简上传页：一个按钮，选完即传 */
+    private static final String UPLOAD_PAGE =
+            "<!DOCTYPE html><html><head><meta charset=utf-8>"
+                    + "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
+                    + "<title>TinyBlock 上传</title></head>"
+                    + "<body style=\"font-family:system-ui;background:#111;color:#eee;text-align:center;padding-top:42vh\">"
+                    + "<input type=file id=f multiple style=display:none onchange=\"up(this.files)\">"
+                    + "<button onclick=\"f.click()\" style=\"font-size:19px;padding:14px 38px;border:0;border-radius:999px;background:#1a73e8;color:#fff\">选择文件上传</button>"
+                    + "<p id=m style=\"margin-top:16px;font-size:14px;color:#9ab\"></p>"
+                    + "<script>function up(fs){var m=document.getElementById('m');var n=0;"
+                    + "for(var i=0;i<fs.length;i++){(function(x){var q=new FormData();q.append('file',x);"
+                    + "var r=new XMLHttpRequest();r.open('POST','/upload');"
+                    + "r.onload=function(){if(++n==fs.length)m.textContent=this.status==200?'已上传 '+n+' 个文件':'上传失败'};"
+                    + "r.send(q)})(fs[i])}}</script></body></html>";
 
     /** 解析 multipart/form-data，取第一个带 filename 的 part 交给监听者保存 */
     private void handleMultipart(OutputStream out, String contentType, byte[] body, int len) {
