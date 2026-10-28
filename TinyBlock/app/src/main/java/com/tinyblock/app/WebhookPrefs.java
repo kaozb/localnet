@@ -15,6 +15,7 @@ public final class WebhookPrefs {
     public static final String KEY_RING_LOOP = "ringLoop";
     public static final String KEY_BLOCK = "block";       // DNS 拦截总开关
     public static final String KEY_WEBHOOK = "webhook";   // 消息接收总开关
+    public static final String KEY_SMS = "smsForward";    // 短信转发总开关
     public static final String KEY_KEEP_ON = "keepOn";    // 屏幕常亮
     public static final String KEY_DARK = "darkTheme";    // 深色主题
 
@@ -64,6 +65,15 @@ public final class WebhookPrefs {
 
     public static void setRingtone(Context c, String uri) {
         p(c).edit().putString("ringtone", uri).apply();
+    }
+
+    /** 短信转发地址模板，可含 {content} {sender} {time} {date} 变量 */
+    public static String smsUrl(Context c) {
+        return p(c).getString("smsUrl", "");
+    }
+
+    public static void setSmsUrl(Context c, String v) {
+        p(c).edit().putString("smsUrl", v == null ? "" : v.trim()).apply();
     }
 
     /** 供界面在服务未广播时先显示上次的计数 */

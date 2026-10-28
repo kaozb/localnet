@@ -77,17 +77,19 @@ public class MainActivity extends Activity {
     private static final int REQ_VPN = 1;
     private static final int REQ_NOTIF = 2;
     private static final int REQ_RING = 3;
+    private static final int REQ_SMS = 4;
 
     private Subs subs;
     private RedirectStore redirects;
 
     private Button mainBtn;
     private TextView tabMessages;
+    private TextView tabSms;
     private TextView tabBlock;
     private TextView tabSettings;
 
     private SwipePager pager;
-    private int currentPage = 1;
+    private int currentPage = 2;
 
     private boolean keepOn;
     private boolean dimmed;
@@ -112,6 +114,8 @@ public class MainActivity extends Activity {
     private EditText subInput;
     private EditText redDomainInput;
     private EditText redIpInput;
+    private EditText smsInput;
+    private TextView smsValue;
 
     private boolean serviceRunning;
     private boolean pendingStart;
@@ -167,6 +171,7 @@ public class MainActivity extends Activity {
         refreshClipSummary();
         refreshPermissions();
         refreshRingValue();
+        refreshSmsState();
     }
 
     @Override
@@ -221,7 +226,7 @@ public class MainActivity extends Activity {
 
         setContentView(root);
 
-        pager.setPages(buildMessagePage(), buildBlockPage(), buildSettingsPage());
+        pager.setPages(buildMessagePage(), buildSmsPage(), buildBlockPage(), buildSettingsPage());
         pager.setOnPageChangeListener(index -> {
             currentPage = index;
             refreshTabs();
@@ -230,7 +235,7 @@ public class MainActivity extends Activity {
                 refreshClipSummary();
             }
         });
-        pager.setCurrentItem(1, false);
+        pager.setCurrentItem(2, false);
 
         rebuildSubRows();
         rebuildRedirectRows();
@@ -267,12 +272,20 @@ public class MainActivity extends Activity {
         blp.rightMargin = dp(12);
         bar.addView(mainBtn, blp);
 
+        tabSms = new TextView(this);
+        tabSms.setText("短信");
+        tabSms.setTextSize(14);
+        tabSms.setTypeface(null, Typeface.BOLD);
+        tabSms.setGravity(Gravity.CENTER);
+        tabSms.setOnClickListener(v -> pager.setCurrentItem(1, true));
+        bar.addView(tabSms, new LinearLayout.LayoutParams(0, -1, 1f));
+
         tabBlock = new TextView(this);
         tabBlock.setText("拦截");
         tabBlock.setTextSize(14);
         tabBlock.setTypeface(null, Typeface.BOLD);
         tabBlock.setGravity(Gravity.CENTER);
-        tabBlock.setOnClickListener(v -> pager.setCurrentItem(1, true));
+        tabBlock.setOnClickListener(v -> pager.setCurrentItem(2, true));
         bar.addView(tabBlock, new LinearLayout.LayoutParams(0, -1, 1f));
 
         tabSettings = new TextView(this);
@@ -280,7 +293,7 @@ public class MainActivity extends Activity {
         tabSettings.setTextSize(14);
         tabSettings.setTypeface(null, Typeface.BOLD);
         tabSettings.setGravity(Gravity.CENTER);
-        tabSettings.setOnClickListener(v -> pager.setCurrentItem(2, true));
+        tabSettings.setOnClickListener(v -> pager.setCurrentItem(3, true));
         bar.addView(tabSettings, new LinearLayout.LayoutParams(0, -1, 1f));
         return bar;
     }
@@ -449,6 +462,100 @@ public class MainActivity extends Activity {
         return scroll;
     }
 
+    // ------------------------------------------------------------------ 短信转发
+
+    private ScrollView buildSmsPage() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(14), dp(6), dp(14), dp(24));
+        scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
+
+        // ===== 转发地址 =====
+        LinearLayout c1 = card();
+        c1.addView(sectionTitle("短信转发"));
+        c1.addView(note("收到短信后按下方地址 GET 转发，变量自动 URL 编码。总开关在「设置」页。"));
+
+        LinearLayout smsPerm = permissionRow("短信权限");
+        smsValue = (TextView) smsPerm.getTag();
+        smsPerm.setOnClickListener(v -> {
+            if (checkSelfPermission("android.permission.RECEIVE_SMS")
+                    != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{"android.permission.RECEIVE_SMS"}, REQ_SMS);
+            }
+        });
+        c1.addView(smsPerm);
+
+        smsInput = new EditText(this);
+        smsInput.setHint("转发地址，如 http://192.168.1.5:8000/sms?from={sender}&text={content}");
+        smsInput.setTextSize(13);
+        smsInput.setTextColor(TEXT_MAIN);
+        smsInput.setHintTextColor(TEXT_SUB);
+        smsInput.setBackground(roundedBox(INPUT_BG, 10));
+        smsInput.setPadding(dp(12), dp(10), dp(12), dp(10));
+        smsInput.setMinLines(2);
+        smsInput.setMaxLines(4);
+        smsInput.setGravity(Gravity.TOP);
+        smsInput.setText(WebhookPrefs.smsUrl(this));
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, -2);
+        slp.topMargin = dp(10);
+        c1.addView(smsInput, slp);
+
+        LinearLayout btns = new LinearLayout(this);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        btns.setGravity(Gravity.CENTER_VERTICAL);
+        Button apply = filledBtn("应用");
+        apply.setOnClickListener(v -> {
+            WebhookPrefs.setSmsUrl(this, smsInput.getText().toString().trim());
+            toast(WebhookPrefs.smsUrl(this).isEmpty() ? "已清空转发地址" : "已保存转发地址");
+        });
+        btns.addView(apply, new LinearLayout.LayoutParams(-2, dp(40)));
+        Button test = textBtn("发送测试", BLUE);
+        test.setOnClickListener(v -> sendSmsTest());
+        btns.addView(test);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, -2);
+        blp.topMargin = dp(10);
+        c1.addView(btns, blp);
+        content.addView(c1);
+
+        // ===== 可用变量 =====
+        LinearLayout c2 = card();
+        c2.addView(sectionTitle("可用变量"));
+        c2.addView(note("{content} 短信内容\n{sender} 发件人号码\n"
+                + "{time} 秒级时间戳\n{date} yyyy-MM-dd HH:mm:ss"));
+        content.addView(c2);
+        return scroll;
+    }
+
+    private void sendSmsTest() {
+        String url = SmsForwarder.expand(WebhookPrefs.smsUrl(this),
+                "10086", "这是一条测试短信", System.currentTimeMillis());
+        if (url == null) {
+            toast("请先填写并应用转发地址");
+            return;
+        }
+        toast("发送中…");
+        final String u = url;
+        new Thread(() -> {
+            try {
+                int code = SmsForwarder.httpGet(u);
+                runOnUiThread(() -> toast(code < 400 ? "测试发送成功（HTTP " + code + "）"
+                        : "服务器返回 HTTP " + code));
+            } catch (Exception e) {
+                runOnUiThread(() -> toast("发送失败：" + e.getMessage()));
+            }
+        }, "sms-test").start();
+    }
+
+    private void refreshSmsState() {
+        if (smsValue == null) return;
+        boolean granted = checkSelfPermission("android.permission.RECEIVE_SMS")
+                == PackageManager.PERMISSION_GRANTED;
+        smsValue.setText(granted ? "已开启" : "去开启");
+        smsValue.setTextColor(granted ? TEXT_SUB : RED);
+    }
+
     private ScrollView buildBlockPage() {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -521,6 +628,21 @@ public class MainActivity extends Activity {
         g1.addView(switchCell("消息接收", swHook), cellLp());
         g1.addView(switchCell("DNS 拦截", swBlock), cellLp());
         c1.addView(g1);
+
+        Switch swSms = new Switch(this);
+        swSms.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_SMS, false));
+        swSms.setOnCheckedChangeListener((b, checked) -> {
+            WebhookPrefs.set(this, WebhookPrefs.KEY_SMS, checked);
+            if (checked && checkSelfPermission("android.permission.RECEIVE_SMS")
+                    != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{"android.permission.RECEIVE_SMS"}, REQ_SMS);
+            }
+        });
+
+        LinearLayout gSms = gridRow();
+        gSms.addView(switchCell("短信转发", swSms), cellLp());
+        gSms.addView(new View(this), cellLp()); // 占位，保持两列对齐
+        c1.addView(gSms);
         content.addView(c1);
 
         // ===== 显示 =====
@@ -555,6 +677,7 @@ public class MainActivity extends Activity {
                 + "· 关闭「DNS 拦截」后启动，不建立 VPN、无需 VPN 授权\n"
                 + "· 两个开关都关闭时，启动按钮会提示先开启\n"
                 + "· 运行中打开「DNS 拦截」若未授权过 VPN，将保持仅接收模式\n"
+                + "· 短信转发与 VPN 无关，地址在「短信」页配置，需短信权限\n"
                 + "· 深色主题切换后立即生效"));
         content.addView(c3);
         return scroll;
@@ -653,8 +776,9 @@ public class MainActivity extends Activity {
 
     private void refreshTabs() {
         styleTab(tabMessages, currentPage == 0);
-        styleTab(tabBlock, currentPage == 1);
-        styleTab(tabSettings, currentPage == 2);
+        styleTab(tabSms, currentPage == 1);
+        styleTab(tabBlock, currentPage == 2);
+        styleTab(tabSettings, currentPage == 3);
     }
 
     private void styleTab(TextView tab, boolean selected) {
@@ -963,6 +1087,7 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
         if (code == REQ_NOTIF && pendingStart) startFlow();
+        if (code == REQ_SMS) refreshSmsState();
     }
 
     @Override
