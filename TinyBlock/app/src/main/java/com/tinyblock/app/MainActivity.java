@@ -38,7 +38,6 @@ import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.util.Enumeration;
 import java.util.List;
-import java.util.Locale;
 
 public class MainActivity extends Activity {
 
@@ -69,10 +68,7 @@ public class MainActivity extends Activity {
     private LinearLayout header;
     private TextView titleView;
     private TextView subtitleView;
-    private TextView statRules;
-    private TextView statRedirects;
     private Button mainBtn;
-    private LinearLayout tabBox;
     private TextView tabMessages;
     private TextView tabBlock;
 
@@ -100,16 +96,12 @@ public class MainActivity extends Activity {
 
     private boolean serviceRunning;
     private boolean pendingStart;
-    private int ruleCount;
-    private int redirectCount;
     private Ringtone previewTone;
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context c, Intent i) {
             serviceRunning = i.getBooleanExtra(BlockVpnService.EXTRA_RUNNING, false);
-            ruleCount = i.getIntExtra(BlockVpnService.EXTRA_RULES, ruleCount);
-            redirectCount = i.getIntExtra(BlockVpnService.EXTRA_REDIRECTS, redirectCount);
             BlockVpnService.statePort = i.getIntExtra(BlockVpnService.EXTRA_PORT, -1);
             BlockVpnService.statePortError = i.getStringExtra(BlockVpnService.EXTRA_PORT_ERROR);
             refreshHeader();
@@ -131,9 +123,6 @@ public class MainActivity extends Activity {
         buildUi();
 
         serviceRunning = BlockVpnService.stateRunning;
-        ruleCount = BlockVpnService.stateRules > 0
-                ? BlockVpnService.stateRules : WebhookPrefs.lastRules(this);
-        redirectCount = countEnabledRedirects();
         BlockVpnService.statePortError = null;
 
         refreshHeader();
@@ -141,7 +130,6 @@ public class MainActivity extends Activity {
         refreshClipSummary();
         refreshRingValue();
         refreshPermissions();
-        if (ruleCount == 0) recountAsync();
 
         IntentFilter f = new IntentFilter(BlockVpnService.ACTION_STATUS);
         if (Build.VERSION.SDK_INT >= 33) {
@@ -200,6 +188,14 @@ public class MainActivity extends Activity {
         root.addView(pager, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
+        View divider = new View(this);
+        divider.setBackgroundColor(0xFFE1E8F2);
+        root.addView(divider, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(1)));
+
+        root.addView(buildBottomBar(), new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
         setContentView(root);
 
         pager.setPages(buildMessagePage(), buildBlockPage());
@@ -220,77 +216,56 @@ public class MainActivity extends Activity {
     private LinearLayout buildHeader() {
         LinearLayout h = new LinearLayout(this);
         h.setOrientation(LinearLayout.VERTICAL);
-        h.setPadding(dp(20), dp(24), dp(20), dp(16));
+        h.setPadding(dp(20), dp(14), dp(20), dp(10));
 
         titleView = new TextView(this);
         titleView.setText("TinyBlock");
-        titleView.setTextSize(24);
+        titleView.setTextSize(20);
         titleView.setTypeface(null, Typeface.BOLD);
         h.addView(titleView);
 
         subtitleView = new TextView(this);
         subtitleView.setText("DNS 拦截 · 域名重定向 · 消息通知");
-        subtitleView.setTextSize(12);
-        subtitleView.setPadding(0, dp(2), 0, dp(14));
+        subtitleView.setTextSize(11);
+        subtitleView.setPadding(0, dp(1), 0, 0);
         h.addView(subtitleView);
+        return h;
+    }
 
-        LinearLayout stats = new LinearLayout(this);
-        stats.setOrientation(LinearLayout.HORIZONTAL);
-
-        statRules = new TextView(this);
-        statRules.setTextSize(13);
-        statRules.setTypeface(null, Typeface.BOLD);
-        statRules.setGravity(Gravity.CENTER);
-        statRules.setPadding(dp(10), dp(7), dp(10), dp(7));
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        stats.addView(statRules, slp);
-
-        statRedirects = new TextView(this);
-        statRedirects.setTextSize(13);
-        statRedirects.setTypeface(null, Typeface.BOLD);
-        statRedirects.setGravity(Gravity.CENTER);
-        statRedirects.setPadding(dp(10), dp(7), dp(10), dp(7));
-        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        rlp.leftMargin = dp(8);
-        stats.addView(statRedirects, rlp);
-        h.addView(stats);
-
-        mainBtn = new Button(this);
-        mainBtn.setTextSize(15);
-        mainBtn.setTypeface(null, Typeface.BOLD);
-        mainBtn.setAllCaps(false);
-        mainBtn.setOnClickListener(v -> toggleVpn());
-        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(-1, dp(46));
-        mlp.topMargin = dp(14);
-        h.addView(mainBtn, mlp);
-
-        tabBox = new LinearLayout(this);
-        tabBox.setOrientation(LinearLayout.HORIZONTAL);
-        tabBox.setPadding(dp(3), dp(3), dp(3), dp(3));
+    /** 底部导航栏：消息 | 圆形启动按钮 | 拦截 */
+    private LinearLayout buildBottomBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setBackgroundColor(CARD);
+        bar.setPadding(dp(6), dp(8), dp(6), dp(8));
 
         tabMessages = new TextView(this);
         tabMessages.setText("消息");
-        tabMessages.setTextSize(13);
+        tabMessages.setTextSize(14);
         tabMessages.setTypeface(null, Typeface.BOLD);
         tabMessages.setGravity(Gravity.CENTER);
         tabMessages.setOnClickListener(v -> pager.setCurrentItem(0, true));
-        tabBox.addView(tabMessages, new LinearLayout.LayoutParams(0, dp(30), 1f));
+        bar.addView(tabMessages, new LinearLayout.LayoutParams(0, -1, 1f));
+
+        mainBtn = new Button(this);
+        mainBtn.setTextSize(0);
+        mainBtn.setAllCaps(false);
+        mainBtn.setElevation(dp(4));
+        mainBtn.setOnClickListener(v -> toggleVpn());
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(54), dp(54));
+        blp.leftMargin = dp(12);
+        blp.rightMargin = dp(12);
+        bar.addView(mainBtn, blp);
 
         tabBlock = new TextView(this);
         tabBlock.setText("拦截");
-        tabBlock.setTextSize(13);
+        tabBlock.setTextSize(14);
         tabBlock.setTypeface(null, Typeface.BOLD);
         tabBlock.setGravity(Gravity.CENTER);
         tabBlock.setOnClickListener(v -> pager.setCurrentItem(1, true));
-        tabBox.addView(tabBlock, new LinearLayout.LayoutParams(0, dp(30), 1f));
-
-        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-1,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        tlp.topMargin = dp(10);
-        h.addView(tabBox, tlp);
-        return h;
+        bar.addView(tabBlock, new LinearLayout.LayoutParams(0, -1, 1f));
+        return bar;
     }
 
     private ScrollView buildMessagePage() {
@@ -530,17 +505,13 @@ public class MainActivity extends Activity {
         int sub = serviceRunning ? 0xB3FFFFFF : HEAD_DARK_SUB;
         titleView.setTextColor(main);
         subtitleView.setTextColor(sub);
-        statRules.setTextColor(main);
-        statRedirects.setTextColor(main);
-        statRules.setText("拦截规则 " + formatCount(ruleCount));
-        statRedirects.setText("重定向 " + formatCount(redirectCount));
-        statRules.setBackground(pill(serviceRunning ? 0x26FFFFFF : 0x1A12325C));
-        statRedirects.setBackground(pill(serviceRunning ? 0x26FFFFFF : 0x1A12325C));
 
-        mainBtn.setText(serviceRunning ? "停止" : "启动");
-        mainBtn.setTextColor(serviceRunning ? 0xFFFFFFFF : BLUE);
-        mainBtn.setBackground(pill(serviceRunning ? 0x33FFFFFF : 0xFFFFFFFF));
-        tabBox.setBackground(pill(serviceRunning ? 0x33FFFFFF : 0x1A12325C));
+        // 底部圆形启动按钮（相机快门样式）：白圈 + 内圆，未运行蓝色、运行中深蓝
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setColor(serviceRunning ? BLUE_DARK_TOP : BLUE);
+        circle.setStroke(dp(3), 0xFFFFFFFF);
+        mainBtn.setBackground(circle);
         refreshTabs();
     }
 
@@ -550,13 +521,7 @@ public class MainActivity extends Activity {
     }
 
     private void styleTab(TextView tab, boolean selected) {
-        if (selected) {
-            tab.setBackground(pill(0xFFFFFFFF));
-            tab.setTextColor(BLUE);
-        } else {
-            tab.setBackground(pill(0x00000000));
-            tab.setTextColor(serviceRunning ? 0xB3FFFFFF : 0x993C5A80);
-        }
+        tab.setTextColor(selected ? BLUE : TEXT_SUB);
     }
 
     private void refreshMessageState() {
@@ -941,27 +906,6 @@ public class MainActivity extends Activity {
                 .show();
     }
 
-    private void recountAsync() {
-        new Thread(() -> {
-            Rules tmp = new Rules();
-            Subs s = new Subs(this);
-            for (Subs.Sub item : s.list) {
-                if (!item.enabled) continue;
-                File f = Subs.fileFor(this, item.url);
-                if (f.isFile()) tmp.loadFile(f.getAbsolutePath());
-            }
-            int rules = tmp.blockCount();
-            int reds = countEnabledRedirects();
-            runOnUiThread(() -> {
-                if (serviceRunning) return;
-                ruleCount = rules;
-                redirectCount = reds;
-                WebhookPrefs.setLastCounts(this, rules, reds);
-                refreshHeader();
-            });
-        }, "recount").start();
-    }
-
     // ------------------------------------------------------------------ 组件
 
     private LinearLayout switchRow(String label, Switch sw) {
@@ -1170,14 +1114,6 @@ public class MainActivity extends Activity {
 
     // ------------------------------------------------------------------ 工具
 
-    private int countEnabledRedirects() {
-        int n = 0;
-        for (RedirectStore.Entry e : redirects.list) {
-            if (e.enabled && RedirectStore.parseIp(e.ip) != null) n++;
-        }
-        return n;
-    }
-
     private String localIpv4() {
         try {
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
@@ -1210,10 +1146,6 @@ public class MainActivity extends Activity {
         if (text == null) return "";
         String s = text.replace('\n', ' ').trim();
         return s.length() > 80 ? s.substring(0, 80) + "…" : s;
-    }
-
-    private static String formatCount(int n) {
-        return String.format(Locale.getDefault(), "%,d", n);
     }
 
     private static String hostOf(String url) {
