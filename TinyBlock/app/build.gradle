@@ -17,10 +17,10 @@ android {
     // 固定 keystore：debug / release 统一签名，升级可覆盖安装
     signingConfigs {
         appSign {
-            storeFile rootProject.file('signing/TinyBlock.keystore')
-            storePassword 'tinyblock123'
-            keyAlias 'tinyblock'
-            keyPassword 'tinyblock123'
+            storeFile rootProject.file('signing/mibo.jks')
+            storePassword 'mibo'
+            keyAlias 'mibo'
+            keyPassword 'mibo'
         }
     }
 

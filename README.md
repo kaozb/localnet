@@ -25,7 +25,7 @@ App 建立一个只路由 **DNS 流量**的本地 VPN（TUN 只接入 VPN DNS �
 .
 ├── .github/workflows/release.yml   # CI：自动打 tag + 构建 + Release
 ├── TinyBlock/                      # Android 工程
-│   ├── signing/TinyBlock.keystore  # 固定签名（密码 tinyblock123，可替换）
+│   ├── signing/mibo.jks            # 固定签名（keystore 密码与 key 别名均为 mibo）
 │   ├── app/src/main/java/com/tinyblock/app/
 │   │   ├── MainActivity.java       # UI（订阅管理 / 重定向管理 / 服务开关）
 │   │   ├── BlockVpnService.java    # VPN 服务：DNS 解析、拦截、重定向、转发
@@ -62,20 +62,18 @@ yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
 # 3. 进入工程目录
 cd TinyBlock
 
-# 4. 打包
-./gradlew assembleDebug     # 调试包 → app/build/outputs/apk/debug/app-debug.apk
+# 4. 打包（只出 release 包，不再构建 debug 包）
 ./gradlew assembleRelease   # 发布包（R8 压缩，约 30KB）→ app/build/outputs/apk/release/app-release.apk
 ./gradlew clean             # 清理构建产物
 ```
 
-> 也可以直接用 Android Studio 打开 `TinyBlock/` 目录运行。构建产物统一使用 `signing/TinyBlock.keystore` 签名（debug/release 相同证书），**升级可直接覆盖安装**。若要换成自己的签名，替换该 keystore 并修改 `TinyBlock/app/build.gradle` 中的 `signingConfigs`。
+> 也可以直接用 Android Studio 打开 `TinyBlock/` 目录运行。构建产物统一使用 `signing/mibo.jks` 签名，**升级可直接覆盖安装**。以后所有构建/发版都用这个 keystore（密码与别名均为 `mibo`），不要再换签名；如需替换，请同时修改 `TinyBlock/app/build.gradle` 中的 `signingConfigs`。
 
 命令速查：
 
 | 命令 | 作用 |
 |---|---|
-| `./gradlew assembleDebug` | 构建调试 APK |
-| `./gradlew assembleRelease` | 构建压缩签名 APK |
+| `./gradlew assembleRelease` | 构建压缩签名 APK（唯一需要构建的产物） |
 | `./gradlew clean` | 清理 |
 | `./gradlew wrapper --gradle-version 8.14.6` | 重置 Gradle wrapper |
 
@@ -85,8 +83,8 @@ cd TinyBlock
 
 1. 计算新版本号：基于最近一个 `v*` tag 递增补丁位（首个为 `v1.0.0`）
 2. 在触发提交上打 tag 并推送
-3. 用 JDK 17 + SDK 34 构建 release / debug APK
-4. 创建 GitHub Release，附件为 `TinyBlock-<tag>.apk`（release）与 `TinyBlock-<tag>-debug.apk`，Release 描述为**自上个 tag 以来的全部提交日志**及版本对比链接
+3. 用 JDK 17 + SDK 34 构建 release APK（使用 `signing/mibo.jks` 签名，不构建 debug 包）
+4. 创建 GitHub Release，附件仅 `TinyBlock-<tag>.apk`，Release 描述为**自上个 tag 以来的全部提交日志**及版本对比链接
 
 ## 使用说明
 
@@ -115,4 +113,4 @@ cd TinyBlock
 - 拦截在 DNS 层完成；写死 IP 或自带 DoT/DoH 的少数应用可绕过
 - 系统开启「私人 DNS」时可能绕过拦截，建议关闭
 - 本应用不分流其它流量，正常上网速度不受影响
-- `signing/TinyBlock.keystore` 与其密码仅适用于个人使用场景，公开发布请替换为自己的签名
+- `signing/mibo.jks` 与其密码（`mibo`）仅适用于个人使用场景，公开发布请替换为自己的签名
