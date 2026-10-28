@@ -815,7 +815,7 @@ public class MainActivity extends Activity {
         uiHandler.postDelayed(dimTask, 60_000L);
     }
 
-    /** 60 秒无操作：全屏黑遮罩模拟锁屏（非真锁屏），亮度压到最低省电，点击恢复 */
+    /** 60 秒无操作：全屏纯黑遮罩模拟锁屏（无任何文字），亮度压到最低省电，点击恢复 */
     private void showLockOverlay() {
         if (lockOverlay != null) return;
         // 隐藏状态栏和导航栏，让黑遮罩盖住整个屏幕（通知栏也一起隐藏）
@@ -834,14 +834,6 @@ public class MainActivity extends Activity {
             hideLockOverlay();
             scheduleDim();
         });
-
-        TextView hint = new TextView(this);
-        hint.setText("点击屏幕唤醒");
-        hint.setTextSize(12);
-        hint.setTextColor(0x40FFFFFF);
-        overlay.addView(hint, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER));
 
         ((ViewGroup) w.getDecorView()).addView(overlay, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
