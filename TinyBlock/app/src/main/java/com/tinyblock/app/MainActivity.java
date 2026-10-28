@@ -90,6 +90,8 @@ public class MainActivity extends Activity {
 
     private SwipePager pager;
     private int currentPage = 2;
+    /** 深色主题 recreate 后要恢复的页码，-1 表示无 */
+    private static int pendingPage = -1;
 
     private boolean keepOn;
     private boolean dimmed;
@@ -142,6 +144,10 @@ public class MainActivity extends Activity {
         if (cf.isFile()) {
             showCrashReport(cf);
             return;
+        }
+        if (pendingPage >= 0) {
+            currentPage = pendingPage;
+            pendingPage = -1;
         }
         subs = new Subs(this);
         redirects = new RedirectStore(this);
@@ -251,7 +257,7 @@ public class MainActivity extends Activity {
                 refreshClipSummary();
             }
         });
-        pager.setCurrentItem(2, false);
+        pager.setCurrentItem(currentPage, false);
 
         rebuildSubRows();
         rebuildRedirectRows();
@@ -731,6 +737,7 @@ public class MainActivity extends Activity {
         swDark.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_DARK, false));
         swDark.setOnCheckedChangeListener((b, checked) -> {
             WebhookPrefs.set(this, WebhookPrefs.KEY_DARK, checked);
+            pendingPage = currentPage; // recreate 后停在当前页
             recreate();
         });
 
@@ -1130,7 +1137,12 @@ public class MainActivity extends Activity {
         boolean block = WebhookPrefs.get(this, WebhookPrefs.KEY_BLOCK, true);
         boolean hook = WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true);
         if (!block && !hook) {
-            toast("请先在「设置」页打开拦截或消息接收");
+            // 短信转发独立运行（广播接收器），不需要启动服务，不算错误
+            if (WebhookPrefs.get(this, WebhookPrefs.KEY_SMS, false)) {
+                toast("短信转发已在后台独立生效，无需启动");
+            } else {
+                toast("请先在「设置」页打开拦截或消息接收");
+            }
             return;
         }
         pendingStart = true;
