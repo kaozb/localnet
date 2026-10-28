@@ -7,6 +7,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
+import android.widget.LinearLayout;
 
 /** 轻量双页容器：整屏宽度分页 + 松手吸附，不引入任何第三方依赖 */
 public class SwipePager extends HorizontalScrollView {
@@ -17,6 +18,7 @@ public class SwipePager extends HorizontalScrollView {
 
     private int current;
     private int pageCount;
+    private ViewGroup pagesContainer;
     private OnPageChangeListener listener;
 
     public SwipePager(Context context) {
@@ -33,8 +35,13 @@ public class SwipePager extends HorizontalScrollView {
     public void setPages(View left, View right) {
         removeAllViews();
         int width = Math.max(1, getResources().getDisplayMetrics().widthPixels);
-        addView(left, new FrameLayout.LayoutParams(width, LayoutParams.MATCH_PARENT));
-        addView(right, new FrameLayout.LayoutParams(width, LayoutParams.MATCH_PARENT));
+        // HorizontalScrollView 只允许一个直接子 View：两页放进一个水平容器里并排
+        LinearLayout pages = new LinearLayout(getContext());
+        pages.setOrientation(LinearLayout.HORIZONTAL);
+        pages.addView(left, new LinearLayout.LayoutParams(width, LayoutParams.MATCH_PARENT));
+        pages.addView(right, new LinearLayout.LayoutParams(width, LayoutParams.MATCH_PARENT));
+        pagesContainer = pages;
+        addView(pages, new FrameLayout.LayoutParams(width, LayoutParams.MATCH_PARENT));
         pageCount = 2;
         post(() -> {
             if (getWidth() > 0) {
@@ -93,8 +100,15 @@ public class SwipePager extends HorizontalScrollView {
     }
 
     private void resizePages(int width) {
-        for (int i = 0; i < getChildCount(); i++) {
-            View child = getChildAt(i);
+        ViewGroup container = pagesContainer;
+        if (container == null) return;
+        ViewGroup.LayoutParams clp = container.getLayoutParams();
+        if (clp != null && clp.width != width) {
+            clp.width = width;
+            container.setLayoutParams(clp);
+        }
+        for (int i = 0; i < container.getChildCount(); i++) {
+            View child = container.getChildAt(i);
             ViewGroup.LayoutParams lp = child.getLayoutParams();
             if (lp.width != width) {
                 lp.width = width;
