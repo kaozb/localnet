@@ -119,8 +119,6 @@ public class MainActivity extends Activity {
     private TextView overlayValue;
     private TextView dnsValue;
 
-    private LinearLayout subDialogList;
-    private LinearLayout redirectListBox;
     private EditText subInput;
     private EditText redDomainInput;
     private EditText redIpInput;
@@ -298,9 +296,6 @@ public class MainActivity extends Activity {
             }
         });
         pager.setCurrentItem(currentPage, false);
-
-        rebuildSubRows();
-        rebuildRedirectRows();
     }
 
     /** 底部导航栏：消息 | 短信 | 圆形启动按钮 | 拦截 | 设置 */
@@ -696,7 +691,7 @@ public class MainActivity extends Activity {
         c1.addView(sectionTitle("订阅管理"));
         c1.addView(note("添加 AdGuard 规则订阅，切换即时生效"));
         Button query = filledBtn("查询");
-        query.setOnClickListener(v -> showSubsDialog());
+        query.setOnClickListener(v -> openRulesList(RulesListActivity.MODE_SUBS));
         LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(-1, dp(40));
         qlp.bottomMargin = dp(10);
         c1.addView(query, qlp);
@@ -713,9 +708,12 @@ public class MainActivity extends Activity {
         titleRow.addView(addRed, new LinearLayout.LayoutParams(-2, dp(40)));
         c2.addView(titleRow);
         c2.addView(note("域名（含子域名）→ 指定 IP，优先级最高"));
-        redirectListBox = new LinearLayout(this);
-        redirectListBox.setOrientation(LinearLayout.VERTICAL);
-        c2.addView(redirectListBox);
+        Button queryRed = filledBtn("查询");
+        queryRed.setOnClickListener(v -> openRulesList(RulesListActivity.MODE_REDIRECTS));
+        LinearLayout.LayoutParams rqlp = new LinearLayout.LayoutParams(-1, dp(40));
+        rqlp.topMargin = dp(10);
+        rqlp.bottomMargin = dp(10);
+        c2.addView(queryRed, rqlp);
         c2.addView(redirectInputs());
         content.addView(c2);
 
@@ -1082,120 +1080,9 @@ public class MainActivity extends Activity {
 
     // ------------------------------------------------------------------ 订阅 / 重定向
 
-    /** 「查询」弹出已订阅清单：删除 | 链接 | 更新，点链接切换启用（蓝）/停用（白） */
-    private void showSubsDialog() {
-        ScrollView scroll = new ScrollView(this);
-        subDialogList = new LinearLayout(this);
-        subDialogList.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(10);
-        subDialogList.setPadding(pad, pad, pad, pad);
-        scroll.addView(subDialogList, new ViewGroup.LayoutParams(-1, -2));
-        rebuildSubRows();
-        new AlertDialog.Builder(this)
-                .setTitle("已订阅规则")
-                .setView(scroll)
-                .setNegativeButton("关闭", null)
-                .setOnDismissListener(d -> subDialogList = null)
-                .show();
-    }
-
-    private void rebuildSubRows() {
-        if (subDialogList == null) return; // 清单未打开时无需刷新
-        subDialogList.removeAllViews();
-        if (subs.list.isEmpty()) {
-            subDialogList.addView(empty("暂无订阅，请在下方添加订阅链接"));
-        }
-        for (final Subs.Sub s : subs.list) {
-            LinearLayout row = itemRow();
-
-            Button del = textBtn("删除", RED);
-            del.setOnClickListener(v -> confirmDeleteSub(s));
-            row.addView(del);
-
-            LinearLayout info = new LinearLayout(this);
-            info.setOrientation(LinearLayout.VERTICAL);
-            TextView name = new TextView(this);
-            name.setText(tailOf(s.url));
-            name.setTextSize(14);
-            name.setTypeface(null, Typeface.BOLD);
-            name.setTextColor(s.enabled ? BLUE : TEXT_MAIN);
-            name.setSingleLine(true);
-            name.setEllipsize(TextUtils.TruncateAt.MIDDLE);
-            info.addView(name);
-            TextView meta = new TextView(this);
-            meta.setText(Subs.cachedLines(this, s.url) + " 行规则"
-                    + (s.enabled ? "" : " · 已停用"));
-            meta.setTextSize(11);
-            meta.setTextColor(TEXT_SUB);
-            meta.setSingleLine(true);
-            meta.setEllipsize(TextUtils.TruncateAt.MIDDLE);
-            info.addView(meta);
-            info.setOnClickListener(v -> {
-                s.enabled = !s.enabled;
-                subs.save();
-                if (s.enabled) download(s, false, true);
-                else sendReload();
-                rebuildSubRows();
-            });
-            row.addView(info, new LinearLayout.LayoutParams(0, -2, 1f));
-
-            Button upd = textBtn("更新", BLUE);
-            upd.setOnClickListener(v -> download(s, true, true));
-            row.addView(upd);
-
-            subDialogList.addView(row, itemLp());
-        }
-    }
-
-    private void rebuildRedirectRows() {
-        redirectListBox.removeAllViews();
-        if (redirects.list.isEmpty()) {
-            redirectListBox.addView(empty("暂无重定向规则"));
-        }
-        for (final RedirectStore.Entry e : redirects.list) {
-            LinearLayout row = itemRow();
-
-            LinearLayout info = new LinearLayout(this);
-            info.setOrientation(LinearLayout.VERTICAL);
-            TextView name = new TextView(this);
-            name.setText(e.domain);
-            name.setTextSize(14);
-            name.setTypeface(null, Typeface.BOLD);
-            name.setTextColor(e.enabled ? TEXT_MAIN : TEXT_SUB);
-            name.setSingleLine(true);
-            name.setEllipsize(TextUtils.TruncateAt.MIDDLE);
-            info.addView(name);
-            TextView meta = new TextView(this);
-            meta.setText("→ " + e.ip + (e.enabled ? "" : " · 已停用"));
-            meta.setTextSize(11);
-            meta.setTextColor(TEXT_SUB);
-            meta.setSingleLine(true);
-            meta.setEllipsize(TextUtils.TruncateAt.MIDDLE);
-            info.addView(meta);
-            row.addView(info, new LinearLayout.LayoutParams(0, -2, 1f));
-
-            Switch sw = new Switch(this);
-            sw.setChecked(e.enabled);
-            sw.setOnCheckedChangeListener((btn, checked) -> {
-                e.enabled = checked;
-                redirects.save();
-                rebuildRedirectRows();
-                sendReload();
-            });
-            row.addView(sw);
-
-            Button del = textBtn("删除", RED);
-            del.setOnClickListener(v -> {
-                redirects.list.remove(e);
-                redirects.save();
-                rebuildRedirectRows();
-                toast("已删除 " + e.domain);
-                sendReload();
-            });
-            row.addView(del);
-
-            redirectListBox.addView(row, itemLp());
-        }
+    /** 打开订阅 / 重定向清单独立页面 */
+    private void openRulesList(String mode) {
+        startActivity(new Intent(this, RulesListActivity.class).putExtra(RulesListActivity.EXTRA_MODE, mode));
     }
 
     // ------------------------------------------------------------------ 操作
@@ -1216,23 +1103,7 @@ public class MainActivity extends Activity {
         subs.list.add(s);
         subs.save();
         subInput.setText("");
-        rebuildSubRows();
         download(s, true, true);
-    }
-
-    private void confirmDeleteSub(final Subs.Sub s) {
-        new AlertDialog.Builder(this)
-                .setTitle("删除订阅")
-                .setMessage(hostOf(s.url))
-                .setPositiveButton("删除", (d, w) -> {
-                    subs.list.remove(s);
-                    subs.save();
-                    Subs.fileFor(this, s.url).delete();
-                    rebuildSubRows();
-                    sendReload();
-                })
-                .setNegativeButton("取消", null)
-                .show();
     }
 
     private void addRedirect() {
@@ -1259,7 +1130,6 @@ public class MainActivity extends Activity {
         redirects.save();
         redDomainInput.setText("");
         redIpInput.setText("");
-        rebuildRedirectRows();
         toast(updated ? "已更新重定向规则" : "已添加重定向规则");
         sendReload();
     }
@@ -1287,7 +1157,6 @@ public class MainActivity extends Activity {
                 int n = Subs.download(this, s.url);
                 runOnUiThread(() -> {
                     toast("下载成功，共 " + n + " 行规则");
-                    rebuildSubRows();
                     if (reloadAfter) sendReload();
                 });
             } catch (Exception e) {
@@ -1546,32 +1415,6 @@ public class MainActivity extends Activity {
         return t;
     }
 
-    private TextView empty(String s) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextSize(12);
-        t.setTextColor(TEXT_SUB);
-        t.setPadding(dp(4), dp(6), dp(4), dp(8));
-        t.setLineSpacing(dp(2), 1f);
-        return t;
-    }
-
-    private LinearLayout itemRow() {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setBackground(roundedBox(ITEM_BG, 12));
-        row.setPadding(dp(12), dp(8), dp(4), dp(8));
-        return row;
-    }
-
-    private LinearLayout.MarginLayoutParams itemLp() {
-        LinearLayout.MarginLayoutParams lp =
-                new LinearLayout.MarginLayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.bottomMargin = dp(8);
-        return lp;
-    }
-
     private EditText boxInput(String hint) {
         EditText e = new EditText(this);
         e.setHint(hint);
@@ -1704,13 +1547,6 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
         return url;
-    }
-
-    /** 只取链接最后一个「/」之后的内容作显示名；以 / 结尾取不到时退回域名 */
-    private static String tailOf(String url) {
-        int i = url.lastIndexOf('/');
-        String t = i >= 0 ? url.substring(i + 1) : url;
-        return t.isEmpty() ? hostOf(url) : t;
     }
 
     private void toast(String m) {
