@@ -119,7 +119,7 @@ public class MainActivity extends Activity {
     private TextView overlayValue;
     private TextView dnsValue;
 
-    private LinearLayout subListBox;
+    private LinearLayout subDialogList;
     private LinearLayout redirectListBox;
     private EditText subInput;
     private EditText redDomainInput;
@@ -695,20 +695,28 @@ public class MainActivity extends Activity {
         LinearLayout c1 = card();
         c1.addView(sectionTitle("订阅管理"));
         c1.addView(note("添加 AdGuard 规则订阅，切换即时生效"));
-        subListBox = new LinearLayout(this);
-        subListBox.setOrientation(LinearLayout.VERTICAL);
-        c1.addView(subListBox);
+        Button query = filledBtn("查询");
+        query.setOnClickListener(v -> showSubsDialog());
+        LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(-1, dp(40));
+        qlp.bottomMargin = dp(10);
+        c1.addView(query, qlp);
         c1.addView(addSubscriptionRow());
         content.addView(c1);
 
         // ===== 域名重定向卡片 =====
         LinearLayout c2 = card();
-        c2.addView(sectionTitle("域名重定向"));
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        titleRow.addView(sectionTitle("域名重定向"), new LinearLayout.LayoutParams(0, -2, 1f));
+        Button addRed = filledBtn("添加");
+        addRed.setOnClickListener(v -> addRedirect());
+        titleRow.addView(addRed, new LinearLayout.LayoutParams(-2, dp(40)));
+        c2.addView(titleRow);
         c2.addView(note("域名（含子域名）→ 指定 IP，优先级最高"));
         redirectListBox = new LinearLayout(this);
         redirectListBox.setOrientation(LinearLayout.VERTICAL);
         c2.addView(redirectListBox);
-        c2.addView(addRedirectRow());
+        c2.addView(redirectInputs());
         content.addView(c2);
 
         // ===== 说明卡片 =====
@@ -1074,21 +1082,43 @@ public class MainActivity extends Activity {
 
     // ------------------------------------------------------------------ 订阅 / 重定向
 
+    /** 「查询」弹出已订阅清单：删除 | 链接 | 更新，点链接切换启用（蓝）/停用（白） */
+    private void showSubsDialog() {
+        ScrollView scroll = new ScrollView(this);
+        subDialogList = new LinearLayout(this);
+        subDialogList.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(10);
+        subDialogList.setPadding(pad, pad, pad, pad);
+        scroll.addView(subDialogList, new ViewGroup.LayoutParams(-1, -2));
+        rebuildSubRows();
+        new AlertDialog.Builder(this)
+                .setTitle("已订阅规则")
+                .setView(scroll)
+                .setNegativeButton("关闭", null)
+                .setOnDismissListener(d -> subDialogList = null)
+                .show();
+    }
+
     private void rebuildSubRows() {
-        subListBox.removeAllViews();
+        if (subDialogList == null) return; // 清单未打开时无需刷新
+        subDialogList.removeAllViews();
         if (subs.list.isEmpty()) {
-            subListBox.addView(empty("暂无订阅，请在下方添加订阅链接"));
+            subDialogList.addView(empty("暂无订阅，请在下方添加订阅链接"));
         }
         for (final Subs.Sub s : subs.list) {
             LinearLayout row = itemRow();
 
+            Button del = textBtn("删除", RED);
+            del.setOnClickListener(v -> confirmDeleteSub(s));
+            row.addView(del);
+
             LinearLayout info = new LinearLayout(this);
             info.setOrientation(LinearLayout.VERTICAL);
             TextView name = new TextView(this);
-            name.setText(hostOf(s.url));
+            name.setText(tailOf(s.url));
             name.setTextSize(14);
             name.setTypeface(null, Typeface.BOLD);
-            name.setTextColor(TEXT_MAIN);
+            name.setTextColor(s.enabled ? BLUE : TEXT_MAIN);
             name.setSingleLine(true);
             name.setEllipsize(TextUtils.TruncateAt.MIDDLE);
             info.addView(name);
@@ -1100,29 +1130,20 @@ public class MainActivity extends Activity {
             meta.setSingleLine(true);
             meta.setEllipsize(TextUtils.TruncateAt.MIDDLE);
             info.addView(meta);
-            info.setOnClickListener(v -> toast(s.url));
-            row.addView(info, new LinearLayout.LayoutParams(0, -2, 1f));
-
-            Switch sw = new Switch(this);
-            sw.setChecked(s.enabled);
-            sw.setOnCheckedChangeListener((btn, checked) -> {
-                s.enabled = checked;
+            info.setOnClickListener(v -> {
+                s.enabled = !s.enabled;
                 subs.save();
-                if (checked) download(s, false, true);
+                if (s.enabled) download(s, false, true);
                 else sendReload();
                 rebuildSubRows();
             });
-            row.addView(sw);
+            row.addView(info, new LinearLayout.LayoutParams(0, -2, 1f));
 
             Button upd = textBtn("更新", BLUE);
             upd.setOnClickListener(v -> download(s, true, true));
             row.addView(upd);
 
-            Button del = textBtn("删除", RED);
-            del.setOnClickListener(v -> confirmDeleteSub(s));
-            row.addView(del);
-
-            subListBox.addView(row, itemLp());
+            subDialogList.addView(row, itemLp());
         }
     }
 
@@ -1281,6 +1302,8 @@ public class MainActivity extends Activity {
 
     private void toggleVpn() {
         if (serviceRunning) {
+            serviceRunning = false; // 先变色再等服务确认，点击即时反馈
+            refreshHeader();
             startService(new Intent(this, BlockVpnService.class).setAction(BlockVpnService.ACTION_STOP));
             return;
         }
@@ -1314,6 +1337,8 @@ public class MainActivity extends Activity {
                 return;
             }
         }
+        serviceRunning = true; // 先变色再等服务确认
+        refreshHeader();
         startService(new Intent(this, BlockVpnService.class).setAction(BlockVpnService.ACTION_START));
     }
 
@@ -1328,6 +1353,8 @@ public class MainActivity extends Activity {
         super.onActivityResult(req, res, data);
         if (req == REQ_VPN) {
             if (res == RESULT_OK) {
+                serviceRunning = true; // 先变色再等服务确认
+                refreshHeader();
                 startService(new Intent(this, BlockVpnService.class).setAction(BlockVpnService.ACTION_START));
             } else {
                 pendingStart = false;
@@ -1596,7 +1623,7 @@ public class MainActivity extends Activity {
         return row;
     }
 
-    private LinearLayout addRedirectRow() {
+    private LinearLayout redirectInputs() {
         LinearLayout wrap = new LinearLayout(this);
         wrap.setOrientation(LinearLayout.VERTICAL);
         wrap.setPadding(0, dp(4), 0, 0);
@@ -1611,16 +1638,6 @@ public class MainActivity extends Activity {
         p2.leftMargin = dp(8);
         row.addView(redIpInput, p2);
         wrap.addView(row);
-
-        LinearLayout row2 = new LinearLayout(this);
-        row2.setGravity(Gravity.END);
-        Button add = filledBtn("添加重定向");
-        row2.addView(add, new LinearLayout.LayoutParams(-2, dp(40)));
-        add.setOnClickListener(v -> addRedirect());
-        LinearLayout.MarginLayoutParams lp2 =
-                new LinearLayout.MarginLayoutParams(-2, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp2.topMargin = dp(8);
-        wrap.addView(row2, lp2);
         return wrap;
     }
 
@@ -1687,6 +1704,13 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
         return url;
+    }
+
+    /** 只取链接最后一个「/」之后的内容作显示名；以 / 结尾取不到时退回域名 */
+    private static String tailOf(String url) {
+        int i = url.lastIndexOf('/');
+        String t = i >= 0 ? url.substring(i + 1) : url;
+        return t.isEmpty() ? hostOf(url) : t;
     }
 
     private void toast(String m) {
