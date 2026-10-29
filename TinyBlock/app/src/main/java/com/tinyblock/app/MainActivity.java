@@ -40,7 +40,6 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -109,12 +108,12 @@ public class MainActivity extends Activity {
     private EditText portInput;
     private TextView addressView;
     private TextView portHint;
-    private Switch swNotify;
-    private Switch swSound;
-    private Switch swVibrate;
-    private Switch swFloat;
-    private Switch swRing;
-    private Switch swSmsField;
+    private NeoSwitch swNotify;
+    private NeoSwitch swSound;
+    private NeoSwitch swVibrate;
+    private NeoSwitch swFloat;
+    private NeoSwitch swRing;
+    private NeoSwitch swSmsField;
     private TextView ringValue;
     private TextView clipSummary;
     private TextView notifBtn;
@@ -421,22 +420,22 @@ public class MainActivity extends Activity {
         c2.addView(sectionTitle("提醒"));
         c2.addView(note("可多选。持续响铃最长 60 秒，点通知或悬浮条上的「确认」即可停止。"));
 
-        swNotify = new Switch(this);
+        swNotify = newSwitch();
         swNotify.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_NOTIFY, true));
         swNotify.setOnCheckedChangeListener((b, checked) ->
                 WebhookPrefs.set(this, WebhookPrefs.KEY_NOTIFY, checked));
 
-        swSound = new Switch(this);
+        swSound = newSwitch();
         swSound.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_SOUND, true));
         swSound.setOnCheckedChangeListener((b, checked) ->
                 WebhookPrefs.set(this, WebhookPrefs.KEY_SOUND, checked));
 
-        swVibrate = new Switch(this);
+        swVibrate = newSwitch();
         swVibrate.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_VIBRATE, true));
         swVibrate.setOnCheckedChangeListener((b, checked) ->
                 WebhookPrefs.set(this, WebhookPrefs.KEY_VIBRATE, checked));
 
-        swFloat = new Switch(this);
+        swFloat = newSwitch();
         swFloat.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_FLOAT, false));
         swFloat.setOnCheckedChangeListener((b, checked) -> {
             if (checked && !Settings.canDrawOverlays(this)) {
@@ -448,7 +447,7 @@ public class MainActivity extends Activity {
             WebhookPrefs.set(this, WebhookPrefs.KEY_FLOAT, checked);
         });
 
-        swRing = new Switch(this);
+        swRing = newSwitch();
         swRing.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_RING_LOOP, false));
         swRing.setOnCheckedChangeListener((b, checked) -> {
             WebhookPrefs.set(this, WebhookPrefs.KEY_RING_LOOP, checked);
@@ -521,7 +520,7 @@ public class MainActivity extends Activity {
         LinearLayout c1 = card();
         c1.addView(sectionTitle("短信转发"));
 
-        Switch swSms = new Switch(this);
+        NeoSwitch swSms = newSwitch();
         swSms.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_SMS, false));
         swSms.setOnCheckedChangeListener((b, checked) -> {
             WebhookPrefs.set(this, WebhookPrefs.KEY_SMS, checked);
@@ -717,21 +716,21 @@ public class MainActivity extends Activity {
         c1.addView(sectionTitle("功能开关"));
         c1.addView(note("启动时只启动已打开的功能；运行中切换即时生效。"));
 
-        Switch swHook = new Switch(this);
+        NeoSwitch swHook = newSwitch();
         swHook.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true));
         swHook.setOnCheckedChangeListener((b, checked) -> {
             WebhookPrefs.set(this, WebhookPrefs.KEY_WEBHOOK, checked);
             if (serviceRunning) sendReload();
         });
 
-        Switch swBlock = new Switch(this);
+        NeoSwitch swBlock = newSwitch();
         swBlock.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_BLOCK, true));
         swBlock.setOnCheckedChangeListener((b, checked) -> {
             WebhookPrefs.set(this, WebhookPrefs.KEY_BLOCK, checked);
             if (serviceRunning) sendReload();
         });
 
-        Switch swBoot = new Switch(this);
+        NeoSwitch swBoot = newSwitch();
         swBoot.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_BOOT, false));
         swBoot.setOnCheckedChangeListener((b, checked) ->
                 WebhookPrefs.set(this, WebhookPrefs.KEY_BOOT, checked));
@@ -767,14 +766,14 @@ public class MainActivity extends Activity {
         LinearLayout c2 = card();
         c2.addView(sectionTitle("显示"));
 
-        Switch swKeep = new Switch(this);
+        NeoSwitch swKeep = newSwitch();
         swKeep.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_KEEP_ON, false));
         swKeep.setOnCheckedChangeListener((b, checked) -> {
             WebhookPrefs.set(this, WebhookPrefs.KEY_KEEP_ON, checked);
             applyKeepOn();
         });
 
-        Switch swDark = new Switch(this);
+        NeoSwitch swDark = newSwitch();
         swDark.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_DARK, false));
         swDark.setOnCheckedChangeListener((b, checked) -> {
             WebhookPrefs.set(this, WebhookPrefs.KEY_DARK, checked);
@@ -1309,7 +1308,15 @@ public class MainActivity extends Activity {
         return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
     }
 
-    private LinearLayout switchCell(String label, Switch sw) {
+    /** 拟物风格开关：白天浅灰底 / 黑夜深灰底，各自配高光与阴影色 */
+    private NeoSwitch newSwitch() {
+        boolean dark = WebhookPrefs.get(this, WebhookPrefs.KEY_DARK, false);
+        return dark
+                ? new NeoSwitch(this, 0xFF242E3E, 0xFF34415A, 0xFF141A24, 0xFF303C50)
+                : new NeoSwitch(this, 0xFFEDF1F7, 0xFFFFFFFF, 0xFFC3CBD9, 0xFFF7FAFF);
+    }
+
+    private LinearLayout switchCell(String label, NeoSwitch sw) {
         LinearLayout cell = new LinearLayout(this);
         cell.setOrientation(LinearLayout.HORIZONTAL);
         cell.setGravity(Gravity.CENTER_VERTICAL);
