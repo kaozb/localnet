@@ -43,6 +43,10 @@ public class NeoSwitch extends CompoundButton {
         shadowOffset = 1.5f * density;
         trackInset = 5 * density;
         setButtonDrawable(null);
+        // CompoundButton(Context) 不带样式，系统样式里的 clickable=true 不生效，
+        // 控件不会消费点击事件，必须自己打开
+        setClickable(true);
+        setFocusable(true);
         // 双色阴影需要软件渲染
         setLayerType(View.LAYER_TYPE_SOFTWARE, null);
     }
