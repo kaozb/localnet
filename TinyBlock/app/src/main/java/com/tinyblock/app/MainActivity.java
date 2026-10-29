@@ -256,15 +256,14 @@ public class MainActivity extends Activity {
         setContentView(root);
 
         // 沉浸式 insets：系统栏区域显示页面背景色（颜色跟随），实际内容顶到系统栏之下；
-        // 底部同时考虑导航栏与输入法高度（键盘弹出时整体收起）
+        // 底部只按导航栏高度留白，键盘弹出时直接盖住底部导航，不顶起
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             int top, bottom;
             if (Build.VERSION.SDK_INT >= 30) {
                 Insets bars = insets.getInsets(
                         WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-                Insets ime = insets.getInsets(WindowInsets.Type.ime());
                 top = bars.top;
-                bottom = Math.max(bars.bottom, ime.bottom);
+                bottom = bars.bottom;
             } else {
                 top = insets.getSystemWindowInsetTop();
                 bottom = insets.getSystemWindowInsetBottom();

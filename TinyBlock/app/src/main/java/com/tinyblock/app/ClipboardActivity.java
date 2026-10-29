@@ -166,9 +166,8 @@ public class ClipboardActivity extends Activity {
             if (Build.VERSION.SDK_INT >= 30) {
                 Insets bars = insets.getInsets(
                         WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-                Insets ime = insets.getInsets(WindowInsets.Type.ime());
                 top = bars.top;
-                bottom = Math.max(bars.bottom, ime.bottom);
+                bottom = bars.bottom;
             } else {
                 top = insets.getSystemWindowInsetTop();
                 bottom = insets.getSystemWindowInsetBottom();
