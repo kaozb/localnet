@@ -18,6 +18,7 @@ public final class WebhookPrefs {
     public static final String KEY_SMS = "smsForward";    // 短信转发总开关
     public static final String KEY_KEEP_ON = "keepOn";    // 屏幕常亮
     public static final String KEY_DARK = "darkTheme";    // 深色主题
+    public static final String KEY_BOOT = "bootStart";    // 开机自启
 
     private static final String NAME = "webhook";
 

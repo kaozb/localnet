@@ -768,10 +768,18 @@ public class MainActivity extends Activity {
             if (serviceRunning) sendReload();
         });
 
+        Switch swBoot = new Switch(this);
+        swBoot.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_BOOT, false));
+        swBoot.setOnCheckedChangeListener((b, checked) ->
+                WebhookPrefs.set(this, WebhookPrefs.KEY_BOOT, checked));
+
         LinearLayout g1 = gridRow();
         g1.addView(switchCell("消息接收", swHook), cellLp());
         g1.addView(switchCell("DNS 拦截", swBlock), cellLp());
         c1.addView(g1);
+        LinearLayout g1b = gridRow();
+        g1b.addView(switchCell("开机自启", swBoot), cellLp());
+        c1.addView(g1b);
         content.addView(c1);
 
         // ===== 网络 =====
