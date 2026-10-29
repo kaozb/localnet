@@ -85,7 +85,6 @@ public class MainActivity extends Activity {
     private static final int REQ_NOTIF = 2;
     private static final int REQ_RING = 3;
     private static final int REQ_SMS = 4;
-    private static final int REQ_VPN_PERM = 5;
 
     private Subs subs;
     private RedirectStore redirects;
@@ -115,12 +114,11 @@ public class MainActivity extends Activity {
     private Switch swVibrate;
     private Switch swFloat;
     private Switch swRing;
+    private Switch swSmsField;
     private TextView ringValue;
     private TextView clipSummary;
     private TextView notifBtn;
     private TextView overlayBtn;
-    private TextView smsBtn;
-    private TextView vpnBtn;
     private EditText dnsInput;
 
     private EditText subInput;
@@ -532,6 +530,7 @@ public class MainActivity extends Activity {
                 requestSmsPermission();
             }
         });
+        swSmsField = swSms;
         LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(-1, -2);
         sLp.topMargin = dp(4);
         c1.addView(switchCell("启用短信转发", swSms), sLp);
@@ -791,32 +790,23 @@ public class MainActivity extends Activity {
         content.addView(c2);
 
         // ===== 权限 =====
+        // 只放「用户可能在系统里关掉、且系统不会再弹框」的权限：
+        // 短信权限在开关打开时自动申请，VPN 授权在启动时自动申请，无需手动引导
         LinearLayout cPerm = card();
         cPerm.addView(sectionTitle("权限"));
-        cPerm.addView(note("点击按钮前往系统授权；下方显示当前状态。"));
+        cPerm.addView(note("仅列出需要你手动处理的权限；短信权限、VPN 授权在启用功能时会自动申请。"));
 
         notifBtn = permissionBtn("通知权限");
         notifBtn.setOnClickListener(v -> openNotificationSettings());
         overlayBtn = permissionBtn("悬浮窗权限");
         overlayBtn.setOnClickListener(v -> openOverlaySettings());
-        smsBtn = permissionBtn("短信权限");
-        smsBtn.setOnClickListener(v -> requestSmsPermission());
-        vpnBtn = permissionBtn("VPN 授权");
-        vpnBtn.setOnClickListener(v -> requestVpnPermission());
 
-        LinearLayout pRow1 = gridRow();
-        pRow1.addView(notifBtn, cellLp());
+        LinearLayout pRow = gridRow();
+        pRow.addView(notifBtn, cellLp());
         LinearLayout.LayoutParams p1 = cellLp();
         p1.leftMargin = dp(8);
-        pRow1.addView(overlayBtn, p1);
-        cPerm.addView(pRow1);
-
-        LinearLayout pRow2 = gridRow();
-        pRow2.addView(smsBtn, cellLp());
-        LinearLayout.LayoutParams p2 = cellLp();
-        p2.leftMargin = dp(8);
-        pRow2.addView(vpnBtn, p2);
-        cPerm.addView(pRow2);
+        pRow.addView(overlayBtn, p1);
+        cPerm.addView(pRow);
         content.addView(cPerm);
 
         // ===== 说明 =====
@@ -1069,9 +1059,6 @@ public class MainActivity extends Activity {
         boolean notify = nm != null && nm.areNotificationsEnabled();
         setPermState(notifBtn, notify);
         setPermState(overlayBtn, Settings.canDrawOverlays(this));
-        setPermState(smsBtn, checkSelfPermission("android.permission.RECEIVE_SMS")
-                == PackageManager.PERMISSION_GRANTED);
-        setPermState(vpnBtn, VpnService.prepare(this) == null);
     }
 
     // ------------------------------------------------------------------ 订阅 / 重定向
@@ -1186,6 +1173,15 @@ public class MainActivity extends Activity {
         pendingStart = true;
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")
                 != PackageManager.PERMISSION_GRANTED) {
+            // 已申请过且系统不再弹框，直接引导到系统设置，不再静默失败
+            if (WebhookPrefs.get(this, WebhookPrefs.KEY_ASKED_NOTIF, false)
+                    && !shouldShowRequestPermissionRationale("android.permission.POST_NOTIFICATIONS")) {
+                pendingStart = false;
+                openNotificationSettings();
+                toast("需要通知权限，请在系统设置中开启");
+                return;
+            }
+            WebhookPrefs.set(this, WebhookPrefs.KEY_ASKED_NOTIF, true);
             requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, REQ_NOTIF);
             return;
         }
@@ -1210,15 +1206,21 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
         if (code == REQ_NOTIF && pendingStart) startFlow();
-        if (code == REQ_SMS) refreshPermissions();
+        if (code == REQ_SMS && res.length > 0
+                && res[0] != PackageManager.PERMISSION_GRANTED) {
+            // 未获授权则回滚开关，避免显示为已启用但实际不工作
+            if (swSmsField != null) {
+                swSmsField.setChecked(false);
+            }
+            WebhookPrefs.set(this, WebhookPrefs.KEY_SMS, false);
+            toast("未授予短信权限，短信转发不会生效");
+        }
     }
 
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
-        if (req == REQ_VPN_PERM) {
-            refreshPermissions();
-        } else if (req == REQ_VPN) {
+        if (req == REQ_VPN) {
             if (res == RESULT_OK) {
                 serviceRunning = true; // 先变色再等服务确认
                 refreshHeader();
@@ -1502,22 +1504,24 @@ public class MainActivity extends Activity {
     private void requestSmsPermission() {
         if (checkSelfPermission("android.permission.RECEIVE_SMS")
                 == PackageManager.PERMISSION_GRANTED) {
-            toast("短信权限已开启");
             return;
         }
+        // 已申请过且系统不再弹框（用户选了「不再询问」），引导到系统设置
+        if (WebhookPrefs.get(this, WebhookPrefs.KEY_ASKED_SMS, false)
+                && !shouldShowRequestPermissionRationale("android.permission.RECEIVE_SMS")) {
+            openAppSettings();
+            return;
+        }
+        WebhookPrefs.set(this, WebhookPrefs.KEY_ASKED_SMS, true);
         requestPermissions(new String[]{"android.permission.RECEIVE_SMS"}, REQ_SMS);
     }
 
-    private void requestVpnPermission() {
-        Intent i = VpnService.prepare(this);
-        if (i == null) {
-            toast("VPN 已授权");
-            return;
-        }
+    private void openAppSettings() {
         try {
-            startActivityForResult(i, REQ_VPN_PERM);
+            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + getPackageName())));
         } catch (Exception e) {
-            toast("无法打开 VPN 授权");
+            toast("无法打开应用设置");
         }
     }
 

@@ -19,6 +19,8 @@ public final class WebhookPrefs {
     public static final String KEY_KEEP_ON = "keepOn";    // 屏幕常亮
     public static final String KEY_DARK = "darkTheme";    // 深色主题
     public static final String KEY_BOOT = "bootStart";    // 开机自启
+    public static final String KEY_ASKED_SMS = "askedSms";   // 是否已申请过短信权限
+    public static final String KEY_ASKED_NOTIF = "askedNotif"; // 是否已申请过通知权限
 
     private static final String NAME = "webhook";
 
