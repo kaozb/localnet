@@ -85,6 +85,7 @@ public class MainActivity extends Activity {
     private static final int REQ_NOTIF = 2;
     private static final int REQ_RING = 3;
     private static final int REQ_SMS = 4;
+    private static final int REQ_VPN_PERM = 5;
 
     private Subs subs;
     private RedirectStore redirects;
@@ -116,8 +117,10 @@ public class MainActivity extends Activity {
     private Switch swRing;
     private TextView ringValue;
     private TextView clipSummary;
-    private TextView notifValue;
-    private TextView overlayValue;
+    private TextView notifBtn;
+    private TextView overlayBtn;
+    private TextView smsBtn;
+    private TextView vpnBtn;
     private EditText dnsInput;
 
     private EditText subInput;
@@ -125,7 +128,6 @@ public class MainActivity extends Activity {
     private EditText redIpInput;
     private EditText smsInput;
     private EditText smsBodyInput;
-    private TextView smsValue;
 
     private boolean serviceRunning;
     private boolean pendingStart;
@@ -195,7 +197,6 @@ public class MainActivity extends Activity {
         refreshClipSummary();
         refreshPermissions();
         refreshRingValue();
-        refreshSmsState();
     }
 
     @Override
@@ -443,8 +444,7 @@ public class MainActivity extends Activity {
             if (checked && !Settings.canDrawOverlays(this)) {
                 WebhookPrefs.set(this, WebhookPrefs.KEY_FLOAT, false);
                 b.setChecked(false);
-                toast("请先授予悬浮窗权限");
-                openOverlaySettings();
+                toast("请先在「设置」页授予悬浮窗权限");
                 return;
             }
             WebhookPrefs.set(this, WebhookPrefs.KEY_FLOAT, checked);
@@ -498,31 +498,13 @@ public class MainActivity extends Activity {
         c3.addView(clipBtns);
         content.addView(c3);
 
-        // ===== 权限 =====
-        LinearLayout c4 = card();
-        c4.addView(sectionTitle("权限"));
-        c4.addView(note("通知权限影响消息通知；悬浮通知需要悬浮窗权限。"));
-        LinearLayout prow = gridRow();
-        LinearLayout notifCell = permissionRow("通知权限");
-        notifValue = (TextView) notifCell.getTag();
-        notifCell.setOnClickListener(v -> openNotificationSettings());
-        prow.addView(notifCell, cellLp());
-        LinearLayout overlayCell = permissionRow("悬浮窗权限");
-        overlayValue = (TextView) overlayCell.getTag();
-        overlayCell.setOnClickListener(v -> openOverlaySettings());
-        LinearLayout.LayoutParams olp = cellLp();
-        olp.leftMargin = dp(8);
-        prow.addView(overlayCell, olp);
-        c4.addView(prow);
-        content.addView(c4);
-
         // ===== 说明 =====
         LinearLayout c5 = card();
         c5.addView(sectionTitle("说明"));
         c5.addView(note("· 任意路径、任意方法均可；GET 带 query 也能接收\n"
                 + "· 与 DNS 拦截共用同一个开关，启动后同时生效\n"
                 + "· 端口监听在本机局域网，请勿直接暴露到公网\n"
-                + "· 锁屏后部分系统可能延迟送达，可将本应用加入后台白名单"));
+                + "· 锁屏后部分系统可能延迟送达，可在「设置」页开启后台白名单"));
         content.addView(c5);
         return scroll;
     }
@@ -547,7 +529,7 @@ public class MainActivity extends Activity {
             WebhookPrefs.set(this, WebhookPrefs.KEY_SMS, checked);
             if (checked && checkSelfPermission("android.permission.RECEIVE_SMS")
                     != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{"android.permission.RECEIVE_SMS"}, REQ_SMS);
+                requestSmsPermission();
             }
         });
         LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(-1, -2);
@@ -555,16 +537,6 @@ public class MainActivity extends Activity {
         c1.addView(switchCell("启用短信转发", swSms), sLp);
 
         c1.addView(note("收到短信后按下方地址 POST 转发。URL 与 JSON 中的变量都会替换；JSON 内原样替换，内容含引号时请自行转义。"));
-
-        LinearLayout smsPerm = permissionRow("短信权限");
-        smsValue = (TextView) smsPerm.getTag();
-        smsPerm.setOnClickListener(v -> {
-            if (checkSelfPermission("android.permission.RECEIVE_SMS")
-                    != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{"android.permission.RECEIVE_SMS"}, REQ_SMS);
-            }
-        });
-        c1.addView(smsPerm);
 
         smsInput = new EditText(this);
         smsInput.setHint("POST 地址，如 http://192.168.1.5:8000/sms");
@@ -679,14 +651,6 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> toast("发送失败：" + e.getMessage()));
             }
         }, "sms-test").start();
-    }
-
-    private void refreshSmsState() {
-        if (smsValue == null) return;
-        boolean granted = checkSelfPermission("android.permission.RECEIVE_SMS")
-                == PackageManager.PERMISSION_GRANTED;
-        smsValue.setText(granted ? "已开启" : "去开启");
-        smsValue.setTextColor(granted ? TEXT_SUB : RED);
     }
 
     private ScrollView buildBlockPage() {
@@ -825,6 +789,35 @@ public class MainActivity extends Activity {
         c2.addView(g2);
         c2.addView(note("常亮：应用在前台时保持亮屏，1 分钟无操作调至最低亮度，触摸屏幕即恢复。"));
         content.addView(c2);
+
+        // ===== 权限 =====
+        LinearLayout cPerm = card();
+        cPerm.addView(sectionTitle("权限"));
+        cPerm.addView(note("点击按钮前往系统授权；下方显示当前状态。"));
+
+        notifBtn = permissionBtn("通知权限");
+        notifBtn.setOnClickListener(v -> openNotificationSettings());
+        overlayBtn = permissionBtn("悬浮窗权限");
+        overlayBtn.setOnClickListener(v -> openOverlaySettings());
+        smsBtn = permissionBtn("短信权限");
+        smsBtn.setOnClickListener(v -> requestSmsPermission());
+        vpnBtn = permissionBtn("VPN 授权");
+        vpnBtn.setOnClickListener(v -> requestVpnPermission());
+
+        LinearLayout pRow1 = gridRow();
+        pRow1.addView(notifBtn, cellLp());
+        LinearLayout.LayoutParams p1 = cellLp();
+        p1.leftMargin = dp(8);
+        pRow1.addView(overlayBtn, p1);
+        cPerm.addView(pRow1);
+
+        LinearLayout pRow2 = gridRow();
+        pRow2.addView(smsBtn, cellLp());
+        LinearLayout.LayoutParams p2 = cellLp();
+        p2.leftMargin = dp(8);
+        pRow2.addView(vpnBtn, p2);
+        cPerm.addView(pRow2);
+        content.addView(cPerm);
 
         // ===== 说明 =====
         LinearLayout c3 = card();
@@ -1071,15 +1064,14 @@ public class MainActivity extends Activity {
     }
 
     private void refreshPermissions() {
-        if (notifValue == null) return;
+        if (notifBtn == null) return;
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         boolean notify = nm != null && nm.areNotificationsEnabled();
-        notifValue.setText(notify ? "已开启" : "去开启");
-        notifValue.setTextColor(notify ? TEXT_SUB : RED);
-
-        boolean overlay = Settings.canDrawOverlays(this);
-        overlayValue.setText(overlay ? "已开启" : "去开启");
-        overlayValue.setTextColor(overlay ? TEXT_SUB : RED);
+        setPermState(notifBtn, notify);
+        setPermState(overlayBtn, Settings.canDrawOverlays(this));
+        setPermState(smsBtn, checkSelfPermission("android.permission.RECEIVE_SMS")
+                == PackageManager.PERMISSION_GRANTED);
+        setPermState(vpnBtn, VpnService.prepare(this) == null);
     }
 
     // ------------------------------------------------------------------ 订阅 / 重定向
@@ -1218,13 +1210,15 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
         if (code == REQ_NOTIF && pendingStart) startFlow();
-        if (code == REQ_SMS) refreshSmsState();
+        if (code == REQ_SMS) refreshPermissions();
     }
 
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
-        if (req == REQ_VPN) {
+        if (req == REQ_VPN_PERM) {
+            refreshPermissions();
+        } else if (req == REQ_VPN) {
             if (res == RESULT_OK) {
                 serviceRunning = true; // 先变色再等服务确认
                 refreshHeader();
@@ -1359,26 +1353,23 @@ public class MainActivity extends Activity {
         return cell;
     }
 
-    private LinearLayout permissionRow(String label) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setBackground(roundedBox(ITEM_BG, 12));
-        row.setPadding(dp(10), dp(10), dp(10), dp(10));
-        row.setClickable(true);
+    /** 权限小按钮：上为名称，下为状态（已开启 / 去开启） */
+    private TextView permissionBtn(String label) {
+        TextView btn = new TextView(this);
+        btn.setGravity(Gravity.CENTER);
+        btn.setBackground(roundedBox(ITEM_BG, 12));
+        btn.setPadding(dp(8), dp(10), dp(8), dp(10));
+        btn.setClickable(true);
+        btn.setTag(label);
+        return btn;
+    }
 
-        TextView text = new TextView(this);
-        text.setText(label);
-        text.setTextSize(12);
-        text.setTextColor(TEXT_MAIN);
-        row.addView(text, new LinearLayout.LayoutParams(0, -2, 1f));
-
-        TextView value = new TextView(this);
-        value.setTextSize(11);
-        value.setTextColor(TEXT_SUB);
-        row.addView(value);
-        row.setTag(value);
-        return row;
+    /** 更新权限按钮的状态文案与颜色 */
+    private void setPermState(TextView btn, boolean granted) {
+        if (btn == null) return;
+        String label = (String) btn.getTag();
+        btn.setText(label + "\n" + (granted ? "已开启" : "去开启"));
+        btn.setTextColor(granted ? TEXT_MAIN : RED);
     }
 
     private LinearLayout card() {
@@ -1505,6 +1496,28 @@ public class MainActivity extends Activity {
                     Uri.parse("package:" + getPackageName())));
         } catch (Exception e) {
             toast("无法打开悬浮窗设置");
+        }
+    }
+
+    private void requestSmsPermission() {
+        if (checkSelfPermission("android.permission.RECEIVE_SMS")
+                == PackageManager.PERMISSION_GRANTED) {
+            toast("短信权限已开启");
+            return;
+        }
+        requestPermissions(new String[]{"android.permission.RECEIVE_SMS"}, REQ_SMS);
+    }
+
+    private void requestVpnPermission() {
+        Intent i = VpnService.prepare(this);
+        if (i == null) {
+            toast("VPN 已授权");
+            return;
+        }
+        try {
+            startActivityForResult(i, REQ_VPN_PERM);
+        } catch (Exception e) {
+            toast("无法打开 VPN 授权");
         }
     }
 
