@@ -1,5 +1,6 @@
 package com.tinyblock.app;
 
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.NotificationManager;
@@ -131,6 +132,15 @@ public class MainActivity extends Activity {
     private boolean pendingStart;
     private Ringtone previewTone;
 
+    // 启动按钮呼吸灯：运行中在亮绿/深绿之间渐变脉冲
+    private GradientDrawable breathDrawable;
+    private ValueAnimator breathAnim;
+    private final int[] breathColors = new int[2];
+    private static final int BREATH_TOP_DIM = 0xFF2EAF52;
+    private static final int BREATH_TOP_BRIGHT = 0xFF6BEA8B;
+    private static final int BREATH_BOT_DIM = 0xFF0A5C26;
+    private static final int BREATH_BOT_BRIGHT = 0xFF18A343;
+
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context c, Intent i) {
@@ -181,6 +191,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         applyKeepOn();
+        startBreath();
         refreshMessageState();
         refreshClipSummary();
         refreshPermissions();
@@ -191,6 +202,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+        if (breathAnim != null) {
+            breathAnim.cancel();
+            breathAnim = null;
+        }
         uiHandler.removeCallbacks(dimTask);
         hideLockOverlay();
     }
@@ -911,18 +926,50 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------ 头部状态
 
     private void refreshHeader() {
-        // 圆形启动按钮：径向渐变 + 白圈 + 投影营造 3D 感；启动后变黄色、「启动」两字消失
+        // 圆形启动按钮：径向渐变 + 白圈 + 投影营造 3D 感；启动后变绿色呼吸灯、「启动」两字消失
         GradientDrawable circle = new GradientDrawable();
         circle.setShape(GradientDrawable.OVAL);
         circle.setStroke(dp(3), 0xFFFFFFFF);
         circle.setGradientType(GradientDrawable.RADIAL_GRADIENT);
         circle.setGradientRadius(dp(28));
-        circle.setColors(serviceRunning
-                ? new int[]{0xFFFFC94D, 0xFFEE9500}
-                : new int[]{0xFF2C6FE8, 0xFF0A3D9E});
+        breathDrawable = circle;
         mainBtn.setBackground(circle);
         mainBtn.setText(serviceRunning ? "" : "启动");
+        startBreath();
         refreshTabs();
+    }
+
+    /** 运行中启动呼吸灯动画，停止则恢复蓝色静态并取消动画 */
+    private void startBreath() {
+        if (breathAnim != null) {
+            breathAnim.cancel();
+            breathAnim = null;
+        }
+        if (breathDrawable == null) return;
+        if (!serviceRunning) {
+            breathDrawable.setColors(new int[]{0xFF2C6FE8, 0xFF0A3D9E});
+            return;
+        }
+        ValueAnimator a = ValueAnimator.ofFloat(0f, 1f);
+        a.setDuration(900);
+        a.setRepeatCount(ValueAnimator.INFINITE);
+        a.setRepeatMode(ValueAnimator.REVERSE);
+        a.addUpdateListener(anim -> {
+            if (breathDrawable == null) return;
+            float t = (float) anim.getAnimatedValue();
+            breathColors[0] = lerpColor(BREATH_TOP_DIM, BREATH_TOP_BRIGHT, t);
+            breathColors[1] = lerpColor(BREATH_BOT_DIM, BREATH_BOT_BRIGHT, t);
+            breathDrawable.setColors(breathColors);
+        });
+        a.start();
+        breathAnim = a;
+    }
+
+    private static int lerpColor(int from, int to, float t) {
+        int r = (int) (Color.red(from) + (Color.red(to) - Color.red(from)) * t);
+        int g = (int) (Color.green(from) + (Color.green(to) - Color.green(from)) * t);
+        int b = (int) (Color.blue(from) + (Color.blue(to) - Color.blue(from)) * t);
+        return Color.rgb(r, g, b);
     }
 
     private void refreshTabs() {
