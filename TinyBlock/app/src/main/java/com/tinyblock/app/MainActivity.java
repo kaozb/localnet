@@ -30,6 +30,7 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -117,7 +118,7 @@ public class MainActivity extends Activity {
     private TextView clipSummary;
     private TextView notifValue;
     private TextView overlayValue;
-    private TextView dnsValue;
+    private EditText dnsInput;
 
     private EditText subInput;
     private EditText redDomainInput;
@@ -211,6 +212,16 @@ public class MainActivity extends Activity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            // 从其他页面/应用切回来时不自动弹输入法：清掉残留焦点，点输入框才弹
+            View f = getCurrentFocus();
+            if (f instanceof EditText) {
+                f.clearFocus();
+                InputMethodManager imm =
+                        (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                imm.hideSoftInputFromWindow(f.getWindowToken(), 0);
+            }
+        }
         if (!keepOn) return;
         if (hasFocus) {
             scheduleDim();
@@ -766,12 +777,19 @@ public class MainActivity extends Activity {
         // ===== 网络 =====
         LinearLayout c1b = card();
         c1b.addView(sectionTitle("网络"));
-        LinearLayout dnsRow = permissionRow("自定义 DNS");
-        dnsValue = (TextView) dnsRow.getTag();
-        dnsRow.setOnClickListener(v -> editDns());
-        c1b.addView(dnsRow);
-        c1b.addView(note("设置后所有 DNS 查询只发往该地址（端口 53），留空用默认 223.5.5.5 / 8.8.8.8。运行中修改立即生效。"));
-        refreshDnsValue();
+        dnsInput = boxInput("如 192.168.1.1，留空恢复默认");
+        dnsInput.setInputType(InputType.TYPE_CLASS_PHONE);
+        dnsInput.setText(WebhookPrefs.dnsUpstream(this));
+        Button saveDns = filledBtn("保存");
+        saveDns.setOnClickListener(v -> saveDns());
+        LinearLayout dRow = new LinearLayout(this);
+        dRow.setOrientation(LinearLayout.HORIZONTAL);
+        dRow.setGravity(Gravity.CENTER_VERTICAL);
+        dRow.addView(dnsInput, new LinearLayout.LayoutParams(0, -2, 1f));
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-2, dp(40));
+        dlp.leftMargin = dp(8);
+        dRow.addView(saveDns, dlp);
+        c1b.addView(dRow);
         content.addView(c1b);
 
         // ===== 显示 =====
@@ -989,34 +1007,12 @@ public class MainActivity extends Activity {
         tab.setTextColor(selected ? BLUE : TEXT_SUB);
     }
 
-    private void refreshDnsValue() {
-        if (dnsValue == null) return;
-        String v = WebhookPrefs.dnsUpstream(this);
-        dnsValue.setText(v.isEmpty() ? "默认" : v);
-    }
-
-    /** 点击「自定义 DNS」：设置单一上游，运行中通过 reload 立即生效 */
-    private void editDns() {
-        final EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setInputType(InputType.TYPE_CLASS_PHONE);
-        input.setHint("如 192.168.1.1，留空恢复默认");
-        input.setText(WebhookPrefs.dnsUpstream(this));
-        input.setPadding(dp(20), dp(10), dp(20), dp(10));
-
-        new AlertDialog.Builder(this)
-                .setTitle("自定义 DNS")
-                .setMessage("所有 DNS 查询将只发往这个地址，留空使用默认 223.5.5.5 / 8.8.8.8。")
-                .setView(input)
-                .setNegativeButton("取消", null)
-                .setPositiveButton("保存", (d, w) -> {
-                    String v = input.getText().toString().trim();
-                    WebhookPrefs.setDnsUpstream(this, v);
-                    refreshDnsValue();
-                    toast(v.isEmpty() ? "已恢复默认 DNS" : "DNS 已设为 " + v);
-                    if (serviceRunning) sendReload();
-                })
-                .show();
+    /** 保存自定义 DNS：设置单一上游，运行中通过 reload 立即生效 */
+    private void saveDns() {
+        String v = dnsInput.getText().toString().trim();
+        WebhookPrefs.setDnsUpstream(this, v);
+        toast(v.isEmpty() ? "已恢复默认 DNS" : "DNS 已设为 " + v);
+        if (serviceRunning) sendReload();
     }
 
     private void refreshMessageState() {

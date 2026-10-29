@@ -102,16 +102,7 @@ public class RulesListActivity extends Activity {
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setBackgroundColor(CARD);
-        bar.setPadding(dp(12), dp(10), dp(12), dp(10));
-
-        TextView back = new TextView(this);
-        back.setText("‹");
-        back.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
-        back.setTextColor(TEXT);
-        back.setPadding(dp(8), 0, dp(12), dp(2));
-        back.setContentDescription("返回");
-        back.setOnClickListener(v -> finish());
-        bar.addView(back);
+        bar.setPadding(dp(16), dp(10), dp(12), dp(10));
 
         TextView title = new TextView(this);
         title.setText(subsMode ? "已订阅规则" : "重定向规则");
