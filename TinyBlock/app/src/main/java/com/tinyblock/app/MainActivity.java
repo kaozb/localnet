@@ -10,6 +10,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.Insets;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.media.Ringtone;
@@ -29,6 +31,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
@@ -250,6 +254,25 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         setContentView(root);
+
+        // 沉浸式 insets：系统栏区域显示页面背景色（颜色跟随），实际内容顶到系统栏之下；
+        // 底部同时考虑导航栏与输入法高度（键盘弹出时整体收起）
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            int top, bottom;
+            if (Build.VERSION.SDK_INT >= 30) {
+                Insets bars = insets.getInsets(
+                        WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                Insets ime = insets.getInsets(WindowInsets.Type.ime());
+                top = bars.top;
+                bottom = Math.max(bars.bottom, ime.bottom);
+            } else {
+                top = insets.getSystemWindowInsetTop();
+                bottom = insets.getSystemWindowInsetBottom();
+            }
+            v.setPadding(0, top, 0, bottom);
+            return Build.VERSION.SDK_INT >= 30
+                    ? WindowInsets.CONSUMED : insets.consumeSystemWindowInsets();
+        });
 
         pager.setPages(buildMessagePage(), buildSmsPage(), buildBlockPage(), buildSettingsPage());
         pager.setOnPageChangeListener(index -> {
@@ -784,16 +807,26 @@ public class MainActivity extends Activity {
         DIVIDER = dark ? DARK_DIVIDER : LIGHT_DIVIDER;
         RED = dark ? DARK_RED : LIGHT_RED;
 
+        // 沉浸式：状态栏/导航栏透明，内容延伸到系统栏底下（insets 顶开），颜色跟随页面背景
         Window w = getWindow();
-        w.setStatusBarColor(BG);
+        w.setStatusBarColor(Color.TRANSPARENT);
+        w.setNavigationBarColor(Color.TRANSPARENT);
         View decor = w.getDecorView();
-        int flags = decor.getSystemUiVisibility();
-        if (dark) {
-            flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+        if (Build.VERSION.SDK_INT >= 30) {
+            w.setDecorFitsSystemWindows(false);
+            WindowInsetsController ic = decor.getWindowInsetsController();
+            if (ic != null) {
+                ic.setSystemBarsAppearance(
+                        dark ? 0 : WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
+                        WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS);
+            }
         } else {
-            flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
+            if (!dark) flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            decor.setSystemUiVisibility(flags);
         }
-        decor.setSystemUiVisibility(flags);
     }
 
     /** 屏幕常亮：前台保持亮屏；60 秒无操作盖全屏黑遮罩模拟锁屏，点击恢复 */
