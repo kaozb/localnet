@@ -6,6 +6,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.graphics.drawable.Icon;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
@@ -747,10 +748,11 @@ public class BlockVpnService extends VpnService {
                 .setContentIntent(pi)
                 .setOngoing(true);
         // 通知栏快捷按钮：停止响铃 / 停止服务
-        nb.addAction(new Notification.Action.Builder(null, "停止响铃",
+        Icon icon = Icon.createWithResource(this, R.drawable.ic_notification);
+        nb.addAction(new Notification.Action.Builder(icon, "停止响铃",
                 PendingIntent.getService(this, 1, new Intent(this, BlockVpnService.class)
                         .setAction(ACTION_STOP_RING), PendingIntent.FLAG_IMMUTABLE)).build());
-        nb.addAction(new Notification.Action.Builder(null, "停止",
+        nb.addAction(new Notification.Action.Builder(icon, "停止",
                 PendingIntent.getService(this, 2, new Intent(this, BlockVpnService.class)
                         .setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)).build());
         return nb.build();
