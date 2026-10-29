@@ -254,6 +254,11 @@ Invoke-RestMethod -Method Post -Uri "http://192.168.1.5:12345" `
 - 手写 `ServerSocket` + 线程池实现：header 上限 64KB、body 上限 1MB、读超时 10 秒、`setReuseAddress(true)`；解析 JSON / 表单 / query / 纯文本四种消息载体，支持 CORS 与 OPTIONS。
 - HTTP 的 `Expect: 100-continue` 握手未实现（主流 curl/HTTP 客户端均可正常使用）。
 
+### CI/CD 发版
+
+- **历史改写后 tag 冲突导致不发版**：强推改写 main 历史后，旧 tag 指向的提交被孤立但 tag 仍存在。工作流用 `git describe` 算下一个版本号时只能看到"可达"的 tag，会算出一个**已存在**的版本号（如 v1.0.2），`git tag -a` 直接 `fatal: tag already exists`，整个流水线失败——结果 Release 页面一直停留在旧代码构建的包上。教训：版本号要用 `git tag -l | sort -V` 扫描**全部** tag（不依赖可达性），并在打 tag 前检查已存在则自增重试。
+- **排查 CI 包问题的思路**：不要假设"流水线产物 = 最新代码"。先 `git ls-remote origin` 看 tag 指向的提交，再 `unzip -p xxx.apk classes.dex | strings` 检查关键类/组件是否存在，即可判断包的新旧。
+
 ## 调试手段
 
 - **内置崩溃日志（首选）**：闪退后再打开 App → 崩溃日志页 → 「复制日志」发出来即可定位；日志文件在 `Android/data/com.tinyblock.app/files/crash.txt`。
