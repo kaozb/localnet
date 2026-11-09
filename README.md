@@ -1,6 +1,6 @@
 # TinyBlock — 极简 AdGuard DNS 拦截 + 消息接收 Android App
 
-一个体积极小（约 53 KB）的本地 VPN 型 DNS 拦截器：订阅 AdGuard 黑白名单，命中黑名单的域名在 DNS 层直接拦截；支持自定义**域名重定向**（把域名解析到你指定的 IP）；内置局域网 **HTTP 消息接收器**，把收到的消息推送为通知、悬浮条、铃声和震动；还支持**短信转发**、**DNS 缓存**、**自定义上游 DNS**、**屏幕常亮**与**深色主题**。
+一个体积极小（约 57 KB）的本地 VPN 型 DNS 拦截器：订阅 AdGuard 黑白名单，命中黑名单的域名在 DNS 层直接拦截；支持自定义**域名重定向**（把域名解析到你指定的 IP）；内置局域网 **HTTP 消息接收器**，把收到的消息推送为通知、悬浮条、铃声和震动；还支持**短信转发**、**DNS 缓存**、**自定义上游 DNS**、**屏幕常亮**与**深色主题**。
 
 整个项目**零第三方依赖**（不使用 androidx，全部程序化构建 UI），Android 8.0（minSdk 26）起步。
 
@@ -113,10 +113,9 @@ App 建立一个只路由 **DNS 流量**的本地 VPN（TUN 只接入 VPN DNS �
 | Gradle | **8.14.6** | 工程已含 wrapper（`gradlew`）；受限网络下可直接用 mise 安装的 gradle |
 | Android Gradle Plugin | **8.7.3** | 定义于 `TinyBlock/build.gradle` |
 | Android SDK | compileSdk **34** / build-tools **34.0.0** / platform-tools | minSdk 26，targetSdk 34 |
-| Python 3 | 3.14（可选） | 仅 `gen_icons.py` 生成图标用，日常构建不需要 |
 | 操作系统 | Linux / Windows / macOS 均可 | CI 使用 ubuntu-latest |
 
-**受限网络（沙箱/代理环境）下的构建配置**——Gradle 下载依赖与 wrapper 需要走 JVM 代理（`GRADLE_OPTS`），`distributionUrl` 直连会超时：
+**受限网络（沙箱/代理环境）下的构建配置**——Gradle 发行包已由 wrapper 直接指向腾讯镜像（`gradle-wrapper.properties`），无需代理；Maven 依赖仓库在受限网络下需走 JVM 代理（`GRADLE_OPTS`）：
 
 ```bash
 export JAVA_HOME=/root/.local/share/mise/installs/java/17.0.20+101
@@ -140,7 +139,7 @@ yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
 cd TinyBlock
 
 # 4. 打包（只出 release 包，不再构建 debug 包）
-./gradlew assembleRelease   # 发布包（R8 压缩，约 53KB）→ app/build/outputs/apk/release/app-release.apk
+./gradlew assembleRelease   # 发布包（R8 压缩，约 57KB）→ app/build/outputs/apk/release/app-release.apk
 ./gradlew clean             # 清理构建产物
 ```
 
