@@ -652,35 +652,38 @@ public class MainActivity extends Activity {
         content.setPadding(dp(14), dp(6), dp(14), dp(24));
         scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
 
-        // ===== 订阅管理卡片 =====
+        // ===== 订阅管理卡片：输入在上，「添加 / 查询」并排在底部 =====
         LinearLayout c1 = card();
         c1.addView(sectionTitle("订阅管理"));
         c1.addView(note("添加 AdGuard 规则订阅，切换即时生效"));
-        Button query = filledBtn("查询");
-        query.setOnClickListener(v -> openRulesList(RulesListActivity.MODE_SUBS));
-        LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(-1, dp(40));
-        qlp.bottomMargin = dp(10);
-        c1.addView(query, qlp);
-        c1.addView(addSubscriptionRow());
+        subInput = boxInput("https://… AdGuard 规则订阅链接");
+        LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(-1, -2);
+        qlp.topMargin = dp(4);
+        c1.addView(subInput, qlp);
+        Button addSub = filledBtn("添加");
+        addSub.setOnClickListener(v -> addSub());
+        Button querySub = textBtn("查询", BLUE);
+        querySub.setOnClickListener(v -> openRulesList(RulesListActivity.MODE_SUBS));
+        c1.addView(actionRow(addSub, querySub));
         content.addView(c1);
 
-        // ===== 域名重定向卡片 =====
+        // ===== 域名重定向卡片：与订阅管理同构，域名/IP 上下两行 =====
         LinearLayout c2 = card();
-        LinearLayout titleRow = new LinearLayout(this);
-        titleRow.setGravity(Gravity.CENTER_VERTICAL);
-        titleRow.addView(sectionTitle("域名重定向"), new LinearLayout.LayoutParams(0, -2, 1f));
+        c2.addView(sectionTitle("域名重定向"));
+        c2.addView(note("域名（含子域名）→ 指定 IP，优先级最高"));
+        redDomainInput = boxInput("域名，如 example.com");
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, -2);
+        rlp.topMargin = dp(4);
+        c2.addView(redDomainInput, rlp);
+        redIpInput = boxInput("IP，如 10.0.0.2");
+        LinearLayout.LayoutParams rilp = new LinearLayout.LayoutParams(-1, -2);
+        rilp.topMargin = dp(8);
+        c2.addView(redIpInput, rilp);
         Button addRed = filledBtn("添加");
         addRed.setOnClickListener(v -> addRedirect());
-        titleRow.addView(addRed, new LinearLayout.LayoutParams(-2, dp(40)));
-        c2.addView(titleRow);
-        c2.addView(note("域名（含子域名）→ 指定 IP，优先级最高"));
-        Button queryRed = filledBtn("查询");
+        Button queryRed = textBtn("查询", BLUE);
         queryRed.setOnClickListener(v -> openRulesList(RulesListActivity.MODE_REDIRECTS));
-        LinearLayout.LayoutParams rqlp = new LinearLayout.LayoutParams(-1, dp(40));
-        rqlp.topMargin = dp(10);
-        rqlp.bottomMargin = dp(10);
-        c2.addView(queryRed, rqlp);
-        c2.addView(redirectInputs());
+        c2.addView(actionRow(addRed, queryRed));
         content.addView(c2);
 
         // ===== 说明卡片 =====
@@ -737,9 +740,10 @@ public class MainActivity extends Activity {
         c1.addView(g1b);
         content.addView(c1);
 
-        // ===== 网络 =====
+        // ===== DNS =====
         LinearLayout c1b = card();
-        c1b.addView(sectionTitle("网络"));
+        c1b.addView(sectionTitle("DNS"));
+        c1b.addView(note("单一上游，留空恢复默认 223.5.5.5 / 8.8.8.8；运行中修改立即生效。该地址不可达时解析会失败。"));
         dnsInput = boxInput("如 192.168.1.1，留空恢复默认");
         dnsInput.setInputType(InputType.TYPE_CLASS_PHONE);
         dnsInput.setText(WebhookPrefs.dnsUpstream(this));
@@ -1494,37 +1498,18 @@ public class MainActivity extends Activity {
         return b;
     }
 
-    private LinearLayout addSubscriptionRow() {
+    /** 卡片底部操作行：两个等宽按钮并排（主操作实心、次操作文字） */
+    private LinearLayout actionRow(Button primary, Button secondary) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(4), 0, 0);
-        subInput = boxInput("https://… AdGuard 规则订阅链接");
-        row.addView(subInput, new LinearLayout.LayoutParams(0, -2, 1f));
-        Button add = filledBtn("添加");
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, dp(40));
-        lp.leftMargin = dp(8);
-        row.addView(add, lp);
-        add.setOnClickListener(v -> addSub());
+        row.addView(primary, new LinearLayout.LayoutParams(0, dp(40), 1f));
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(0, dp(40), 1f);
+        sp.leftMargin = dp(8);
+        row.addView(secondary, sp);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = dp(10);
+        row.setLayoutParams(lp);
         return row;
-    }
-
-    private LinearLayout redirectInputs() {
-        LinearLayout wrap = new LinearLayout(this);
-        wrap.setOrientation(LinearLayout.VERTICAL);
-        wrap.setPadding(0, dp(4), 0, 0);
-
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        redDomainInput = boxInput("域名，如 example.com");
-        redIpInput = boxInput("IP，如 10.0.0.2");
-        LinearLayout.LayoutParams p1 = new LinearLayout.LayoutParams(0, -2, 1.2f);
-        row.addView(redDomainInput, p1);
-        LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(0, -2, 1f);
-        p2.leftMargin = dp(8);
-        row.addView(redIpInput, p2);
-        wrap.addView(row);
-        return wrap;
     }
 
     // ------------------------------------------------------------------ 权限跳转
