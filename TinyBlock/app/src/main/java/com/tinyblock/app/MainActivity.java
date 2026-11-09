@@ -778,7 +778,7 @@ public class MainActivity extends Activity {
         g2.addView(switchCell("屏幕常亮", swKeep), cellLp());
         g2.addView(switchCell("深色主题", swDark), cellLp());
         c2.addView(g2);
-        c2.addView(note("常亮：应用在前台时保持亮屏，屏幕出现可拖动的悬浮球；点悬浮球立即黑屏（模拟锁屏），黑屏中再点悬浮球恢复，点其他位置无效。"));
+        c2.addView(note("常亮：应用在前台时保持亮屏，屏幕出现可拖动的悬浮球；点悬浮球黑屏（模拟锁屏），黑屏中点屏幕调出/隐藏悬浮球，点悬浮球解除黑屏。"));
         content.addView(c2);
 
         // ===== 权限 =====
@@ -850,7 +850,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 屏幕常亮：前台保持亮屏；悬浮球点按黑屏模拟锁屏，黑屏中再点悬浮球恢复 */
+    /** 屏幕常亮：前台保持亮屏；悬浮球点按黑屏模拟锁屏，黑屏中点屏幕调出悬浮球，点悬浮球恢复 */
     private void applyKeepOn() {
         keepOn = WebhookPrefs.get(this, WebhookPrefs.KEY_KEEP_ON, false);
         Window w = getWindow();
@@ -932,7 +932,8 @@ public class MainActivity extends Activity {
         else exitBlackScreen();
     }
 
-    /** 黑屏：全屏纯黑遮罩模拟锁屏（无任何文字），亮度压到最低省电；解除只认悬浮球，点其他地方无效 */
+    /** 黑屏：全屏纯黑遮罩模拟锁屏（无任何文字），亮度压到最低省电；悬浮球随黑屏消失，
+     *  点屏幕只切换悬浮球显隐，点中悬浮球才解除黑屏 */
     private void enterBlackScreen() {
         if (lockOverlay != null) return;
         // 隐藏状态栏和导航栏，让黑遮罩盖住整个屏幕（通知栏也一起隐藏）
@@ -945,12 +946,14 @@ public class MainActivity extends Activity {
 
         View overlay = new View(this);
         overlay.setBackgroundColor(0xFF000000);
-        overlay.setClickable(true); // 消费触摸防穿透，但不做任何响应
+        overlay.setOnClickListener(v -> lockBtn.setVisibility(
+                lockBtn.getVisibility() == View.VISIBLE ? View.INVISIBLE : View.VISIBLE));
 
         ((ViewGroup) w.getDecorView()).addView(overlay, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         lockOverlay = overlay;
-        lockBtn.bringToFront(); // 悬浮球保持在黑遮罩之上，作为唯一出口
+        lockBtn.bringToFront(); // 黑遮罩后加入会盖住悬浮球，提到最上层
+        lockBtn.setVisibility(View.INVISIBLE);
         setBrightness(0.01f);
     }
 
@@ -958,6 +961,7 @@ public class MainActivity extends Activity {
         if (lockOverlay == null) return;
         ((ViewGroup) getWindow().getDecorView()).removeView(lockOverlay);
         lockOverlay = null;
+        lockBtn.setVisibility(View.VISIBLE);
         Window w = getWindow();
         w.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         applyTheme(); // 恢复状态栏颜色、图标深浅
