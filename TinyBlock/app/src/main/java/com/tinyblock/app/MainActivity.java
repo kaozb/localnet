@@ -21,14 +21,13 @@ import android.net.Uri;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.provider.Settings;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
@@ -100,10 +99,8 @@ public class MainActivity extends Activity {
     private static int pendingPage = -1;
 
     private boolean keepOn;
-    private boolean dimmed;
     private View lockOverlay;
-    private final Handler uiHandler = new Handler(Looper.getMainLooper());
-    private final Runnable dimTask = this::showLockOverlay;
+    private View lockBtn;
 
     private EditText portInput;
     private TextView addressView;
@@ -203,8 +200,7 @@ public class MainActivity extends Activity {
             breathAnim.cancel();
             breathAnim = null;
         }
-        uiHandler.removeCallbacks(dimTask);
-        hideLockOverlay();
+        exitBlackScreen();
     }
 
     @Override
@@ -221,13 +217,10 @@ public class MainActivity extends Activity {
             }
         }
         if (!keepOn) return;
-        if (hasFocus) {
-            scheduleDim();
-        } else {
-            // 下拉状态栏 / 切到其他应用时退出锁屏遮罩并恢复默认亮度：
+        if (!hasFocus) {
+            // 下拉状态栏 / 切到其他应用时退出黑屏并恢复默认亮度：
             // 窗口级亮度覆盖会压住系统亮度调节，必须及时撤掉
-            uiHandler.removeCallbacks(dimTask);
-            hideLockOverlay();
+            exitBlackScreen();
         }
     }
 
@@ -785,7 +778,7 @@ public class MainActivity extends Activity {
         g2.addView(switchCell("屏幕常亮", swKeep), cellLp());
         g2.addView(switchCell("深色主题", swDark), cellLp());
         c2.addView(g2);
-        c2.addView(note("常亮：应用在前台时保持亮屏，1 分钟无操作调至最低亮度，触摸屏幕即恢复。"));
+        c2.addView(note("常亮：应用在前台时保持亮屏，屏幕出现可拖动的悬浮球；点悬浮球立即黑屏（模拟锁屏），黑屏中再点悬浮球恢复，点其他位置无效。"));
         content.addView(c2);
 
         // ===== 权限 =====
@@ -857,27 +850,90 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 屏幕常亮：前台保持亮屏；60 秒无操作盖全屏黑遮罩模拟锁屏，点击恢复 */
+    /** 屏幕常亮：前台保持亮屏；悬浮球点按黑屏模拟锁屏，黑屏中再点悬浮球恢复 */
     private void applyKeepOn() {
         keepOn = WebhookPrefs.get(this, WebhookPrefs.KEY_KEEP_ON, false);
         Window w = getWindow();
         if (keepOn) {
             w.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            scheduleDim();
+            showLockButton();
         } else {
             w.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            uiHandler.removeCallbacks(dimTask);
-            hideLockOverlay();
+            exitBlackScreen();
+            hideLockButton();
         }
     }
 
-    private void scheduleDim() {
-        uiHandler.removeCallbacks(dimTask);
-        uiHandler.postDelayed(dimTask, 60_000L);
+    /** 悬浮球：可拖动；点按进入黑屏，黑屏中点按恢复 */
+    private void showLockButton() {
+        if (lockBtn != null) return;
+        GradientDrawable bg = new GradientDrawable();
+        bg.setShape(GradientDrawable.OVAL);
+        bg.setColor(0xB317233B);
+        bg.setStroke(dp(1), 0x806DA8FF);
+
+        TextView btn = new TextView(this);
+        btn.setText("锁屏");
+        btn.setTextColor(Color.WHITE);
+        btn.setTextSize(10);
+        btn.setGravity(Gravity.CENTER);
+        btn.setBackground(bg);
+        btn.setElevation(dp(6));
+
+        float[] base = new float[2];
+        float[] start = new float[2];
+        boolean[] dragged = new boolean[1];
+        int slop = ViewConfiguration.get(this).getScaledTouchSlop();
+        btn.setOnTouchListener((v, ev) -> {
+            switch (ev.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    base[0] = ev.getRawX();
+                    base[1] = ev.getRawY();
+                    start[0] = v.getTranslationX();
+                    start[1] = v.getTranslationY();
+                    dragged[0] = false;
+                    return true;
+                case MotionEvent.ACTION_MOVE: {
+                    float dx = ev.getRawX() - base[0], dy = ev.getRawY() - base[1];
+                    if (!dragged[0] && Math.hypot(dx, dy) < slop) return true;
+                    dragged[0] = true;
+                    FrameLayout decor = (FrameLayout) getWindow().getDecorView();
+                    float tx = Math.max(-v.getLeft(), Math.min(
+                            decor.getWidth() - v.getWidth() - v.getLeft(), start[0] + dx));
+                    float ty = Math.max(-v.getTop(), Math.min(
+                            decor.getHeight() - v.getHeight() - v.getTop(), start[1] + dy));
+                    v.setTranslationX(tx);
+                    v.setTranslationY(ty);
+                    return true;
+                }
+                case MotionEvent.ACTION_UP:
+                    if (!dragged[0]) toggleBlackScreen();
+                    return true;
+            }
+            return false;
+        });
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                dp(44), dp(44), Gravity.BOTTOM | Gravity.END);
+        lp.rightMargin = dp(16);
+        lp.bottomMargin = dp(160);
+        ((ViewGroup) getWindow().getDecorView()).addView(btn, lp);
+        lockBtn = btn;
     }
 
-    /** 60 秒无操作：全屏纯黑遮罩模拟锁屏（无任何文字），亮度压到最低省电，点击恢复 */
-    private void showLockOverlay() {
+    private void hideLockButton() {
+        if (lockBtn == null) return;
+        ((ViewGroup) getWindow().getDecorView()).removeView(lockBtn);
+        lockBtn = null;
+    }
+
+    private void toggleBlackScreen() {
+        if (lockOverlay == null) enterBlackScreen();
+        else exitBlackScreen();
+    }
+
+    /** 黑屏：全屏纯黑遮罩模拟锁屏（无任何文字），亮度压到最低省电；解除只认悬浮球，点其他地方无效 */
+    private void enterBlackScreen() {
         if (lockOverlay != null) return;
         // 隐藏状态栏和导航栏，让黑遮罩盖住整个屏幕（通知栏也一起隐藏）
         Window w = getWindow();
@@ -887,36 +943,24 @@ public class MainActivity extends Activity {
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                         | View.SYSTEM_UI_FLAG_FULLSCREEN);
 
-        FrameLayout overlay = new FrameLayout(this);
+        View overlay = new View(this);
         overlay.setBackgroundColor(0xFF000000);
-        overlay.setClickable(true);
-        overlay.setLongClickable(true);
-        overlay.setOnClickListener(v -> {
-            hideLockOverlay();
-            scheduleDim();
-        });
+        overlay.setClickable(true); // 消费触摸防穿透，但不做任何响应
 
         ((ViewGroup) w.getDecorView()).addView(overlay, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         lockOverlay = overlay;
-        dimmed = true;
+        lockBtn.bringToFront(); // 悬浮球保持在黑遮罩之上，作为唯一出口
         setBrightness(0.01f);
     }
 
-    private void hideLockOverlay() {
-        if (lockOverlay != null) {
-            ViewGroup decor = (ViewGroup) getWindow().getDecorView();
-            decor.removeView(lockOverlay);
-            lockOverlay = null;
-        }
+    private void exitBlackScreen() {
+        if (lockOverlay == null) return;
+        ((ViewGroup) getWindow().getDecorView()).removeView(lockOverlay);
+        lockOverlay = null;
         Window w = getWindow();
         w.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         applyTheme(); // 恢复状态栏颜色、图标深浅
-        restoreBrightness();
-    }
-
-    private void restoreBrightness() {
-        dimmed = false;
         setBrightness(WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE);
     }
 
@@ -926,15 +970,6 @@ public class MainActivity extends Activity {
         if (lp.screenBrightness == v) return;
         lp.screenBrightness = v;
         w.setAttributes(lp);
-    }
-
-    @Override
-    public boolean dispatchTouchEvent(MotionEvent ev) {
-        // 遮罩显示时由它自己消费点击并唤醒，这里不拦截
-        if (keepOn && lockOverlay == null) {
-            scheduleDim();
-        }
-        return super.dispatchTouchEvent(ev);
     }
 
     // ------------------------------------------------------------------ 头部状态
