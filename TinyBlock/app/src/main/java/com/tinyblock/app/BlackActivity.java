@@ -3,6 +3,7 @@ package com.tinyblock.app;
 import android.app.Activity;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -28,8 +29,16 @@ import android.widget.FrameLayout;
  * 底部上滑手势——系统手势导航接管，切走后窗口同样失去焦点。
  * 两路在 onWindowFocusChanged(false) 汇合 finish()，轻微下拉的半透明遮罩
  * 不抢焦点、松手自动收回，不会误触。
+ * <p>
+ * 启动静默期：onCreate 到沉浸标记生效之间系统会回调一次「无栏可见」，
+ * 窗口焦点在启动转场时也会 true→false 抖动——两路信号在头几百毫秒必然
+ * 各误触发一次，黑屏刚点开就自己退出（暗一下又亮）。故启动后 800ms 内
+ * 解锁信号一律忽略。
  */
 public class BlackActivity extends Activity {
+
+    /** 解锁信号的生效时刻（onCreate 起算），之前的信号是启动过渡的抖动 */
+    private long armedAt;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -43,7 +52,12 @@ public class BlackActivity extends Activity {
         lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         w.setAttributes(lp);
         setContentView(new FrameLayout(this));
+        armedAt = SystemClock.elapsedRealtime() + 800;
         listenUnlock();
+    }
+
+    private boolean armed() {
+        return SystemClock.elapsedRealtime() >= armedAt;
     }
 
     /**
@@ -55,7 +69,7 @@ public class BlackActivity extends Activity {
         // 窗口自身的 inset 变化（刘海避让等）不动这两个标记，不会误触
         final int bars = View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
         getWindow().getDecorView().setOnSystemUiVisibilityChangeListener(visibility -> {
-            if ((visibility & bars) != bars) finish();
+            if ((visibility & bars) != bars && armed()) finish();
         });
     }
 
@@ -81,7 +95,7 @@ public class BlackActivity extends Activity {
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) hideBars();
-        else finish();
+        else if (armed()) finish();
     }
 
     /** 屏蔽返回，防止绕过模拟锁屏 */

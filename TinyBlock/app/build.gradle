@@ -10,8 +10,8 @@ android {
         applicationId "com.tinyblock.app"
         minSdk 26
         targetSdk 34
-        versionCode 5
-        versionName "1.4.0"
+        versionCode 6
+        versionName "1.5.0"
     }
 
     // 固定 keystore：debug / release 统一签名，升级可覆盖安装
