@@ -348,7 +348,7 @@ public class MainActivity extends Activity {
         bar.addView(mainBtn, blp);
 
         tabBlock = new TextView(this);
-        tabBlock.setText("拦截");
+        tabBlock.setText("DNS");
         tabBlock.setTextSize(14);
         tabBlock.setTypeface(null, Typeface.BOLD);
         tabBlock.setGravity(Gravity.CENTER);
@@ -376,8 +376,6 @@ public class MainActivity extends Activity {
         // ===== 消息接收 =====
         LinearLayout c1 = card();
         c1.addView(sectionTitle("消息接收"));
-        c1.addView(note("启动后同时开启 DNS 拦截与 HTTP 接收。同一局域网内，向下方地址 POST 消息即可。\n"
-                + "支持 JSON {\"text\":\"...\"}、表单 text=... 或任意纯文本。"));
 
         LinearLayout portRow = new LinearLayout(this);
         portRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -419,7 +417,6 @@ public class MainActivity extends Activity {
         // ===== 提醒 =====
         LinearLayout c2 = card();
         c2.addView(sectionTitle("提醒"));
-        c2.addView(note("可多选。持续响铃最长 60 秒，点通知或悬浮条上的「确认」即可停止。"));
 
         swNotify = newSwitch();
         swNotify.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_NOTIFY, true));
@@ -495,15 +492,6 @@ public class MainActivity extends Activity {
         clipBtns.addView(open, new LinearLayout.LayoutParams(0, dp(40), 1f));
         c3.addView(clipBtns);
         content.addView(c3);
-
-        // ===== 说明 =====
-        LinearLayout c5 = card();
-        c5.addView(sectionTitle("说明"));
-        c5.addView(note("· 任意路径、任意方法均可；GET 带 query 也能接收\n"
-                + "· 与 DNS 拦截共用同一个开关，启动后同时生效\n"
-                + "· 端口监听在本机局域网，请勿直接暴露到公网\n"
-                + "· 锁屏后部分系统可能延迟送达，可在「设置」页开启后台白名单"));
-        content.addView(c5);
         return scroll;
     }
 
@@ -535,10 +523,8 @@ public class MainActivity extends Activity {
         sLp.topMargin = dp(4);
         c1.addView(switchCell("启用短信转发", swSms), sLp);
 
-        c1.addView(note("收到短信后按下方地址 POST 转发。URL 与 JSON 中的变量都会替换；JSON 内原样替换，内容含引号时请自行转义。"));
-
         smsInput = new EditText(this);
-        smsInput.setHint("POST 地址，如 http://192.168.1.5:8000/sms");
+        smsInput.setHint("转发地址");
         smsInput.setTextSize(13);
         smsInput.setTextColor(TEXT_MAIN);
         smsInput.setHintTextColor(TEXT_SUB);
@@ -551,7 +537,7 @@ public class MainActivity extends Activity {
         c1.addView(smsInput, slp);
 
         smsBodyInput = new EditText(this);
-        smsBodyInput.setHint("JSON 内容，如 {\"sender\":\"{sender}\",\"content\":\"{content}\"}");
+        smsBodyInput.setHint("JSON 模板");
         smsBodyInput.setTextSize(13);
         smsBodyInput.setTypeface(Typeface.MONOSPACE);
         smsBodyInput.setTextColor(TEXT_MAIN);
@@ -604,16 +590,6 @@ public class MainActivity extends Activity {
         blp.topMargin = dp(10);
         c1.addView(btns, blp);
         content.addView(c1);
-
-        // ===== 可用变量 =====
-        LinearLayout c2 = card();
-        c2.addView(sectionTitle("可用变量"));
-        c2.addView(note("{content} 短信内容\n{sender} 发件人号码\n"
-                + "{time} 秒级时间戳\n{date} yyyy-MM-dd HH:mm:ss\n\n"
-                + "URL 中的变量会 URL 编码；JSON 中原样替换。"
-                + "JSON 留空时使用默认模板：\n"
-                + "{\"sender\":\"{sender}\",\"content\":\"{content}\",\"time\":{time},\"date\":\"{date}\"}"));
-        content.addView(c2);
         return scroll;
     }
 
@@ -663,8 +639,7 @@ public class MainActivity extends Activity {
         // ===== 订阅管理卡片：输入在上，「添加 / 查询」并排在底部 =====
         LinearLayout c1 = card();
         c1.addView(sectionTitle("订阅管理"));
-        c1.addView(note("添加 AdGuard 规则订阅，切换即时生效"));
-        subInput = boxInput("https://… AdGuard 规则订阅链接");
+        subInput = boxInput("订阅链接");
         LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(-1, -2);
         qlp.topMargin = dp(4);
         c1.addView(subInput, qlp);
@@ -678,12 +653,11 @@ public class MainActivity extends Activity {
         // ===== 域名重定向卡片：与订阅管理同构，域名/IP 上下两行 =====
         LinearLayout c2 = card();
         c2.addView(sectionTitle("域名重定向"));
-        c2.addView(note("域名（含子域名）→ 指定 IP，优先级最高"));
-        redDomainInput = boxInput("域名，如 example.com");
+        redDomainInput = boxInput("域名");
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, -2);
         rlp.topMargin = dp(4);
         c2.addView(redDomainInput, rlp);
-        redIpInput = boxInput("IP，如 10.0.0.2");
+        redIpInput = boxInput("IP");
         LinearLayout.LayoutParams rilp = new LinearLayout.LayoutParams(-1, -2);
         rilp.topMargin = dp(8);
         c2.addView(redIpInput, rilp);
@@ -693,15 +667,6 @@ public class MainActivity extends Activity {
         queryRed.setOnClickListener(v -> openRulesList(RulesListActivity.MODE_REDIRECTS));
         c2.addView(actionRow(addRed, queryRed));
         content.addView(c2);
-
-        // ===== 说明卡片 =====
-        LinearLayout c3 = card();
-        c3.addView(sectionTitle("说明"));
-        c3.addView(note("· 拦截规则：||example.org^ 拦截（含子域名）；@@||example.org^ 放行，优先于拦截\n"
-                + "· 重定向规则优先级最高，命中后直接返回你设置的 IP\n"
-                + "· 拦截通过本地 VPN 在 DNS 层完成，其它流量不经过本应用\n"
-                + "· 系统开启「私人 DNS」时可能绕过拦截，建议关闭"));
-        content.addView(c3);
         return scroll;
     }
 
@@ -718,7 +683,6 @@ public class MainActivity extends Activity {
         // ===== 功能开关 =====
         LinearLayout c1 = card();
         c1.addView(sectionTitle("功能开关"));
-        c1.addView(note("启动时只启动已打开的功能；运行中切换即时生效。"));
 
         NeoSwitch swHook = newSwitch();
         swHook.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true));
@@ -751,8 +715,7 @@ public class MainActivity extends Activity {
         // ===== DNS =====
         LinearLayout c1b = card();
         c1b.addView(sectionTitle("DNS"));
-        c1b.addView(note("单一上游，留空恢复默认 223.5.5.5 / 8.8.8.8；运行中修改立即生效。该地址不可达时解析会失败。"));
-        dnsInput = boxInput("如 192.168.1.1，留空恢复默认");
+        dnsInput = boxInput("上游 DNS，留空用默认");
         dnsInput.setInputType(InputType.TYPE_CLASS_PHONE);
         dnsInput.setText(WebhookPrefs.dnsUpstream(this));
         Button saveDns = filledBtn("保存");
@@ -790,7 +753,6 @@ public class MainActivity extends Activity {
         g2.addView(switchCell("屏幕常亮", swKeep), cellLp());
         g2.addView(switchCell("深色主题", swDark), cellLp());
         c2.addView(g2);
-        c2.addView(note("常亮：应用在前台时保持亮屏，屏幕出现可拖动的悬浮球；点悬浮球黑屏（模拟锁屏），下拉通知栏拉到底即解除黑屏。"));
         content.addView(c2);
 
         // ===== 权限 =====
@@ -798,7 +760,6 @@ public class MainActivity extends Activity {
         // 短信权限在开关打开时自动申请，VPN 授权在启动时自动申请，无需手动引导
         LinearLayout cPerm = card();
         cPerm.addView(sectionTitle("权限"));
-        cPerm.addView(note("仅列出需要你手动处理的权限；短信权限、VPN 授权在启用功能时会自动申请。"));
 
         notifBtn = permissionBtn("通知权限");
         notifBtn.setOnClickListener(v -> openNotificationSettings());
@@ -812,17 +773,6 @@ public class MainActivity extends Activity {
         pRow.addView(overlayBtn, p1);
         cPerm.addView(pRow);
         content.addView(cPerm);
-
-        // ===== 说明 =====
-        LinearLayout c3 = card();
-        c3.addView(sectionTitle("说明"));
-        c3.addView(note("· 关闭「消息接收」后启动，不再监听 HTTP 端口\n"
-                + "· 关闭「DNS 拦截」后启动，不建立 VPN、无需 VPN 授权\n"
-                + "· 两个开关都关闭时，启动按钮会提示先开启\n"
-                + "· 运行中打开「DNS 拦截」若未授权过 VPN，将保持仅接收模式\n"
-                + "· 短信转发的开关与地址都在「短信」页，需短信权限\n"
-                + "· 深色主题切换后立即生效"));
-        content.addView(c3);
         return scroll;
     }
 
@@ -1078,7 +1028,7 @@ public class MainActivity extends Activity {
     private void refreshMessageState() {
         if (portInput == null) return;
         if (!WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true)) {
-            addressView.setText("消息接收功能已在「设置」页关闭");
+            addressView.setText("已在设置页关闭");
             addressView.setTextColor(TEXT_SUB);
             portHint.setVisibility(View.GONE);
             return;
@@ -1089,7 +1039,7 @@ public class MainActivity extends Activity {
         String ip = localIpv4();
         int port = WebhookPrefs.port(this);
         if (ip == null) {
-            addressView.setText("未连接到局域网，连接 Wi‑Fi 或热点后即可接收");
+            addressView.setText("未连接局域网");
             addressView.setTextColor(TEXT_SUB);
         } else {
             addressView.setText("http://" + ip + ":" + port);
@@ -1474,19 +1424,9 @@ public class MainActivity extends Activity {
         t.setTextSize(16);
         t.setTypeface(null, Typeface.BOLD);
         t.setTextColor(TEXT_MAIN);
-        t.setPadding(dp(8), 0, 0, 0);
+        t.setPadding(dp(8), 0, 0, dp(8));
         row.addView(t);
         return row;
-    }
-
-    private TextView note(String s) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextSize(12);
-        t.setTextColor(TEXT_SUB);
-        t.setPadding(0, dp(4), 0, dp(6));
-        t.setLineSpacing(dp(2), 1f);
-        return t;
     }
 
     private EditText boxInput(String hint) {
@@ -1686,7 +1626,7 @@ public class MainActivity extends Activity {
         root.setPadding(dp(16), dp(20), dp(16), dp(16));
 
         TextView t = new TextView(this);
-        t.setText("检测到崩溃日志\n（点「复制日志」发送给开发者；点「清除并继续」尝试正常打开）");
+        t.setText("检测到崩溃日志");
         t.setTextSize(14);
         t.setTypeface(null, Typeface.BOLD);
         t.setTextColor(TEXT_MAIN);

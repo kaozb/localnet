@@ -142,11 +142,10 @@ public class ClipboardActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
         empty = new TextView(this);
-        empty.setText("还没有收到消息\n在电脑或脚本里向手机端口 POST 一条消息试试");
+        empty.setText("还没有收到消息");
         empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         empty.setTextColor(MUTED);
         empty.setGravity(Gravity.CENTER);
-        empty.setLineSpacing(dp(4), 1f);
         empty.setVisibility(View.GONE);
         LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);

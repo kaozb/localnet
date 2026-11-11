@@ -111,12 +111,6 @@ public class RulesListActivity extends Activity {
         bar.addView(title, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView hint = new TextView(this);
-        hint.setText(subsMode ? "点链接启用/停用" : "点规则启用/停用");
-        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        hint.setTextColor(MUTED);
-        bar.addView(hint);
-
         root.addView(bar, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -138,9 +132,7 @@ public class RulesListActivity extends Activity {
         empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         empty.setTextColor(MUTED);
         empty.setGravity(Gravity.CENTER);
-        empty.setLineSpacing(dp(4), 1f);
-        empty.setText(subsMode
-                ? "暂无订阅\n回到拦截页添加订阅链接" : "暂无重定向规则\n回到拦截页添加域名和 IP");
+        empty.setText(subsMode ? "暂无订阅" : "暂无重定向规则");
         empty.setVisibility(View.GONE);
         LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
