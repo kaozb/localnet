@@ -32,6 +32,15 @@
             android:exported="false"
             android:parentActivityName=".MainActivity" />
 
+        <!-- 模拟锁屏：黑屏必须用 Activity 才能盖住状态栏（悬浮窗层级低于状态栏） -->
+        <activity
+            android:name=".BlackActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:screenOrientation="portrait"
+            android:theme="@style/BlackTheme" />
+
         <activity
             android:name=".RulesListActivity"
             android:exported="false"

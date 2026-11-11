@@ -10,4 +10,12 @@
         <item name="android:navigationBarColor">#FFFFFF</item>
         <item name="android:windowBackground">#EEF3FB</item>
     </style>
+
+    <!-- 模拟锁屏：纯黑全屏，无标题栏，状态栏导航栏也黑 -->
+    <style name="BlackTheme" parent="android:Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">#000000</item>
+        <item name="android:statusBarColor">#000000</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
 </resources>

@@ -74,6 +74,8 @@ public class MainActivity extends Activity {
 
     /** 底部标签栏高度：标签栏浮在内容之上，页面内容按这个高度留出底部空白 */
     private static final int TAB_BAR_H = 56;
+    /** 圆形启动按钮直径：独立浮在画板右下角，不占标签行 */
+    private static final int FAB_SIZE = 56;
 
     private static final int REQ_VPN = 1;
     private static final int REQ_NOTIF = 2;
@@ -234,6 +236,14 @@ public class MainActivity extends Activity {
         root.addView(buildTabBar(), new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, dp(TAB_BAR_H), Gravity.BOTTOM));
 
+        // 启动按钮是一张独立的圆形卡片，浮在画板右下角、标签行上方，不参与标签排布
+        fab = buildFab();
+        FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(
+                dp(FAB_SIZE), dp(FAB_SIZE), Gravity.BOTTOM | Gravity.END);
+        flp.rightMargin = dp(16);
+        flp.bottomMargin = dp(TAB_BAR_H + 16);
+        root.addView(fab, flp);
+
         setContentView(root);
 
         // 沉浸式 insets：系统栏区域显示页面背景色（颜色跟随），实际内容顶到系统栏之下；
@@ -273,6 +283,8 @@ public class MainActivity extends Activity {
         b.setTypeface(null, Typeface.BOLD);
         b.setGravity(Gravity.CENTER);
         b.setClickable(true);
+        // 浮在内容之上，靠投影和下面的卡片区分开（圆卡本身就是一层）
+        b.setElevation(dp(6));
         b.setOnClickListener(v -> {
             if (fabKey == null) return;
             if (WebhookPrefs.KEY_SMS.equals(fabKey)) toggleSms();
@@ -281,12 +293,11 @@ public class MainActivity extends Activity {
         return b;
     }
 
-    /** 底部标签行：四个纯文字标签 + 行尾一个圆形启动按钮，无底色无边框，单层坐在页面背景上 */
+    /** 底部标签行：四个纯文字标签等分整行，无底色无边框，单层坐在页面背景上 */
     private LinearLayout buildTabBar() {
         LinearLayout tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
         tabs.setGravity(Gravity.CENTER_VERTICAL);
-        tabs.setPadding(dp(6), 0, dp(10), 0);
         // 与页面背景同色：看不出任何额外一层，但能挡住滑到底时从下面穿过的卡片
         tabs.setBackgroundColor(BG);
 
@@ -294,12 +305,6 @@ public class MainActivity extends Activity {
         tabSms = addTab(tabs, "短信", 1);
         tabBlock = addTab(tabs, "DNS", 2);
         tabSettings = addTab(tabs, "设置", 3);
-
-        // 启动按钮单独一个圆卡，放在标签行最右端，不占额外一行（48dp 保证点击热区）
-        fab = buildFab();
-        LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(dp(48), dp(48));
-        flp.leftMargin = dp(8);
-        tabs.addView(fab, flp);
         return tabs;
     }
 
@@ -319,7 +324,7 @@ public class MainActivity extends Activity {
         scroll.setFillViewport(true);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(14), dp(6), dp(14), dp(TAB_BAR_H + 24));
+        content.setPadding(dp(14), dp(6), dp(14), dp(TAB_BAR_H + FAB_SIZE + 16));
         scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
 
         // ===== 消息接收 =====
@@ -451,7 +456,7 @@ public class MainActivity extends Activity {
         scroll.setFillViewport(true);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(14), dp(6), dp(14), dp(TAB_BAR_H + 24));
+        content.setPadding(dp(14), dp(6), dp(14), dp(TAB_BAR_H + FAB_SIZE + 16));
         scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
 
         // ===== 转发地址 =====
@@ -568,7 +573,7 @@ public class MainActivity extends Activity {
         scroll.setFillViewport(true);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(14), dp(6), dp(14), dp(TAB_BAR_H + 24));
+        content.setPadding(dp(14), dp(6), dp(14), dp(TAB_BAR_H + FAB_SIZE + 16));
         scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
 
         // ===== DNS 拦截：状态 + 启动按钮 =====
@@ -639,7 +644,7 @@ public class MainActivity extends Activity {
         scroll.setFillViewport(true);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(14), dp(6), dp(14), dp(TAB_BAR_H + 24));
+        content.setPadding(dp(14), dp(6), dp(14), dp(TAB_BAR_H + FAB_SIZE + 16));
         scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
 
         // ===== 通用 =====
@@ -781,7 +786,7 @@ public class MainActivity extends Activity {
         styleTab(tabSms, currentPage == 1);
         styleTab(tabBlock, currentPage == 2);
         styleTab(tabSettings, currentPage == 3);
-        // 圆形按钮只对应当前页功能：消息 / 短信 / DNS，设置页隐起来（留位不跳）
+        // 圆形按钮只对应当前页功能：消息 / 短信 / DNS
         if (fab == null) return;
         if (currentPage == 0) {
             fabKey = WebhookPrefs.KEY_WEBHOOK;
@@ -795,7 +800,8 @@ public class MainActivity extends Activity {
         } else {
             fabKey = null;
         }
-        fab.setVisibility(fabKey == null ? View.INVISIBLE : View.VISIBLE);
+        // 设置页没有对应功能：整张圆卡隐掉（它已经不占标签行，不需要留位）
+        fab.setVisibility(fabKey == null ? View.GONE : View.VISIBLE);
         setFab(fab, fabOn());
     }
 

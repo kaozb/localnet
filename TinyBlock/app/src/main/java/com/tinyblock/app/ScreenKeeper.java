@@ -1,6 +1,7 @@
 package com.tinyblock.app;
 
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.GradientDrawable;
@@ -8,16 +9,15 @@ import android.os.PowerManager;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.MotionEvent;
-import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.WindowManager;
-import android.widget.FrameLayout;
 import android.widget.TextView;
 
 /**
  * 屏幕常亮与模拟锁屏，状态挂在静态字段上，离开本应用、Activity 销毁后依然生效：
- * 常亮用 WakeLock（系统级，无需额外权限）；锁屏球与黑遮罩用系统级悬浮窗，
+ * 常亮用 WakeLock（系统级，无需额外权限）；锁屏球用系统级悬浮窗，
  * 需要「显示在其他应用上层」权限，无权限时只保常亮、不放锁屏球。
+ * 黑屏本体是 {@link BlackActivity}——悬浮窗层级低于状态栏，盖不住时钟电量。
  */
 public final class ScreenKeeper {
 
@@ -26,7 +26,9 @@ public final class ScreenKeeper {
     private static TextView ball;
     /** 锁屏球的窗口参数：拖动靠改它的 x/y 实现全屏移动 */
     private static WindowManager.LayoutParams ballLp;
-    private static FrameLayout black;
+    private static boolean ballAttached;
+    /** 黑屏 Activity 是否在显示 */
+    private static boolean blackOn;
 
     private ScreenKeeper() {
     }
@@ -54,20 +56,18 @@ public final class ScreenKeeper {
             }
         }
         Context app = c.getApplicationContext();
-        if (ball != null || !Settings.canDrawOverlays(app)) return;
+        if (!Settings.canDrawOverlays(app)) return;
         if (wm == null) wm = (WindowManager) app.getSystemService(Context.WINDOW_SERVICE);
         if (wm == null) return;
-        ballLp = ballParams(app);
-        ball = buildBall(app);
-        try {
-            wm.addView(ball, ballLp);
-        } catch (Exception e) {
-            ball = null;
+        if (ball == null) {
+            ballLp = ballParams(app);
+            ball = buildBall(app);
         }
+        // 球可能因黑屏被摘掉过，这里无条件调一次让 attachBall 按当前状态挂回去
+        attachBall(true);
     }
 
     private static void stop() {
-        hideBlack();
         if (wake != null) {
             try {
                 wake.release();
@@ -75,20 +75,38 @@ public final class ScreenKeeper {
             }
             wake = null;
         }
-        if (ball != null && wm != null) {
-            try {
-                wm.removeView(ball);
-            } catch (Exception ignored) {
-            }
-        }
+        attachBall(false);
         ball = null;
+    }
+
+    /**
+     * 黑屏期间把悬浮球从窗口里摘掉：GONE 只是不画，44dp 的悬浮窗仍在最上层，
+     * 会吞掉那一片的点击（遮罩上「点屏幕调出解锁」就点不动）。
+     */
+    static void setBlackVisible(boolean on) {
+        blackOn = on;
+        attachBall(!on);
+    }
+
+    private static void attachBall(boolean attach) {
+        if (ball == null || wm == null) return;
+        // 黑屏期间不挂球（服务重启会重新 sync，别把球又浮到黑屏上面）
+        boolean want = attach && !blackOn;
+        if (want == ballAttached) return;
+        try {
+            if (want) wm.addView(ball, ballLp);
+            else wm.removeView(ball);
+            ballAttached = want;
+        } catch (Exception ignored) {
+            // 挂载失败（权限被撤、窗口已存在）不记状态，下次 sync 重试
+        }
     }
 
     private static int dp(Context c, float v) {
         return (int) (v * c.getResources().getDisplayMetrics().density + 0.5f);
     }
 
-    /** 44dp 圆形深蓝底，无边框，可拖到屏幕任意位置；点按切换黑屏 */
+    /** 44dp 圆形深蓝底，无边框，可拖到屏幕任意位置；点按进入黑屏 */
     private static TextView buildBall(Context c) {
         TextView btn = new TextView(c);
         btn.setText("锁屏");
@@ -135,8 +153,13 @@ public final class ScreenKeeper {
                 }
                 case MotionEvent.ACTION_UP:
                     if (!dragged[0]) {
-                        if (black == null) showBlack(c);
-                        else hideBlack();
+                        // 持有「显示在其他应用上层」权限的应用不受后台启动 Activity 限制，
+                        // 所以在别的应用里点球也能进黑屏
+                        try {
+                            c.startActivity(new Intent(c, BlackActivity.class)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                        } catch (Exception ignored) {
+                        }
                     }
                     return true;
             }
@@ -159,59 +182,5 @@ public final class ScreenKeeper {
         lp.x = Math.max(0, sw - size - dp(c, 16));
         lp.y = Math.max(0, sh - size - dp(c, 160));
         return lp;
-    }
-
-    /** 全屏纯黑遮罩：盖住其他应用（含画中画/小窗）；点遮罩显隐「解锁」，点「解锁」解除 */
-    private static void showBlack(Context c) {
-        if (black != null || wm == null) return;
-        FrameLayout overlay = new FrameLayout(c);
-        overlay.setBackgroundColor(0xFF000000);
-
-        TextView btn = new TextView(c);
-        btn.setText("解锁");
-        btn.setTextColor(Color.WHITE);
-        btn.setTextSize(14);
-        btn.setGravity(Gravity.CENTER);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0x33FFFFFF);
-        bg.setCornerRadius(dp(c, 24));
-        bg.setStroke(dp(c, 1), 0x66FFFFFF);
-        btn.setBackground(bg);
-        btn.setVisibility(View.GONE);
-        btn.setOnClickListener(v -> hideBlack());
-        FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(dp(c, 96), dp(c, 44));
-        blp.gravity = Gravity.CENTER;
-        overlay.addView(btn, blp);
-
-        overlay.setOnClickListener(v ->
-                btn.setVisibility(btn.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
-
-        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                        | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
-                PixelFormat.OPAQUE);
-        // 黑屏期间把背光压到最低省电（AMOLED 纯黑像素不发光），随遮罩移除自动恢复
-        lp.screenBrightness = 0.01f;
-        try {
-            wm.addView(overlay, lp);
-        } catch (Exception e) {
-            return;
-        }
-        black = overlay;
-        if (ball != null) ball.setVisibility(View.GONE);
-    }
-
-    private static void hideBlack() {
-        if (black != null && wm != null) {
-            try {
-                wm.removeView(black);
-            } catch (Exception ignored) {
-            }
-        }
-        black = null;
-        if (ball != null) ball.setVisibility(View.VISIBLE);
     }
 }
