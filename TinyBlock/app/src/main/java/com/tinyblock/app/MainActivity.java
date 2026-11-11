@@ -295,11 +295,10 @@ public class MainActivity extends Activity {
         return dot;
     }
 
-    /** 底部栏：圆形启动按钮与标签同处一层，共用一块背景，无分隔线 */
+    /** 底部栏：不画自己的底色，直接坐在页面背景上（全界面只有页面背景这一层）；标签做成浏览器标签样式的圆角块 */
     private LinearLayout buildBottomBar() {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.VERTICAL);
-        bar.setBackgroundColor(CARD);
 
         bar.addView(buildDots(), new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -307,7 +306,7 @@ public class MainActivity extends Activity {
         LinearLayout tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
         tabs.setGravity(Gravity.CENTER_VERTICAL);
-        tabs.setPadding(dp(8), dp(4), dp(8), dp(6));
+        tabs.setPadding(dp(6), dp(2), dp(6), dp(2));
 
         tabMessages = addTab(tabs, "消息", 0);
         tabSms = addTab(tabs, "短信", 1);
@@ -318,13 +317,13 @@ public class MainActivity extends Activity {
         return bar;
     }
 
-    /** 底部标签：等分宽度，选中变蓝加粗 */
+    /** 底部标签：等分宽度，选中变蓝加粗并浮起一块圆角卡片（浏览器标签观感） */
     private TextView addTab(LinearLayout bar, String text, int page) {
         TextView tab = new TextView(this);
         tab.setText(text);
         tab.setTextSize(14);
         tab.setGravity(Gravity.CENTER);
-        tab.setPadding(0, dp(10), 0, dp(10));
+        tab.setPadding(0, dp(9), 0, dp(9));
         tab.setOnClickListener(v -> pager.setCurrentItem(page, true));
         bar.addView(tab, new LinearLayout.LayoutParams(0, -2, 1f));
         return tab;
@@ -803,6 +802,16 @@ public class MainActivity extends Activity {
     private void styleTab(TextView tab, boolean selected) {
         tab.setTextColor(selected ? BLUE : TEXT_SUB);
         tab.setTypeface(null, selected ? Typeface.BOLD : Typeface.NORMAL);
+        tab.setBackground(selected ? topRoundedBox(CARD) : null);
+    }
+
+    /** 只有上边两个角是圆角的卡片：选中标签像从内容区延伸下来的一张标签页 */
+    private GradientDrawable topRoundedBox(int color) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(color);
+        float r = dp(12);
+        g.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
+        return g;
     }
 
     /** 保存自定义 DNS：设置单一上游，运行中通过 reload 立即生效 */
