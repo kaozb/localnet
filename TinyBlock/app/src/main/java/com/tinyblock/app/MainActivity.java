@@ -1,6 +1,5 @@
 package com.tinyblock.app;
 
-import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.NotificationManager;
@@ -88,7 +87,11 @@ public class MainActivity extends Activity {
     private Subs subs;
     private RedirectStore redirects;
 
-    private Button mainBtn;
+    /** 各卡片标题行上的启动按钮：消息 / 短信 / DNS */
+    private Button runHookBtn;
+    private Button runSmsBtn;
+    private Button runBlockBtn;
+    private TextView dnsState;
     private TextView tabMessages;
     private TextView tabSms;
     private TextView tabBlock;
@@ -111,7 +114,6 @@ public class MainActivity extends Activity {
     private NeoSwitch swVibrate;
     private NeoSwitch swFloat;
     private NeoSwitch swRing;
-    private NeoSwitch swSmsField;
     private TextView ringValue;
     private TextView clipSummary;
     private TextView notifBtn;
@@ -128,14 +130,6 @@ public class MainActivity extends Activity {
     private boolean pendingStart;
     private Ringtone previewTone;
 
-    // 启动按钮呼吸灯：运行中在亮绿/深绿之间渐变脉冲
-    private GradientDrawable breathDrawable;
-    private ValueAnimator breathAnim;
-    private final int[] breathColors = new int[2];
-    private static final int BREATH_TOP_DIM = 0xFF2EAF52;
-    private static final int BREATH_TOP_BRIGHT = 0xFF6BEA8B;
-    private static final int BREATH_BOT_DIM = 0xFF0A5C26;
-    private static final int BREATH_BOT_BRIGHT = 0xFF18A343;
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override
@@ -187,7 +181,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         applyKeepOn();
-        startBreath();
+        refreshHeader();
         refreshMessageState();
         refreshClipSummary();
         refreshPermissions();
@@ -197,10 +191,6 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
-        if (breathAnim != null) {
-            breathAnim.cancel();
-            breathAnim = null;
-        }
         exitBlackScreen();
     }
 
@@ -308,61 +298,31 @@ public class MainActivity extends Activity {
         pager.setCurrentItem(currentPage, false);
     }
 
-    /** 底部导航栏：消息 | 短信 | 圆形启动按钮 | 拦截 | 设置 */
+    /** 底部导航栏：消息 | 短信 | DNS | 设置 */
     private LinearLayout buildBottomBar() {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setBackgroundColor(CARD);
-        bar.setPadding(dp(6), dp(8), dp(6), dp(8));
+        bar.setPadding(dp(8), dp(6), dp(8), dp(6));
 
-        tabMessages = new TextView(this);
-        tabMessages.setText("消息");
-        tabMessages.setTextSize(14);
-        tabMessages.setTypeface(null, Typeface.BOLD);
-        tabMessages.setGravity(Gravity.CENTER);
-        tabMessages.setOnClickListener(v -> pager.setCurrentItem(0, true));
-        bar.addView(tabMessages, new LinearLayout.LayoutParams(0, -1, 1f));
-
-        tabSms = new TextView(this);
-        tabSms.setText("短信");
-        tabSms.setTextSize(14);
-        tabSms.setTypeface(null, Typeface.BOLD);
-        tabSms.setGravity(Gravity.CENTER);
-        tabSms.setOnClickListener(v -> pager.setCurrentItem(1, true));
-        bar.addView(tabSms, new LinearLayout.LayoutParams(0, -1, 1f));
-
-        mainBtn = new Button(this);
-        mainBtn.setText("启动");
-        mainBtn.setTextSize(13);
-        mainBtn.setTypeface(null, Typeface.BOLD);
-        mainBtn.setTextColor(0xFFFFFFFF);
-        mainBtn.setAllCaps(false);
-        mainBtn.setElevation(dp(6));
-        // 清空系统/厂商主题遗留的背景着色，否则自定义背景会被整体染成主题色
-        mainBtn.setBackgroundTintList(null);
-        mainBtn.setOnClickListener(v -> toggleVpn());
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(54), dp(54));
-        blp.leftMargin = dp(12);
-        blp.rightMargin = dp(12);
-        bar.addView(mainBtn, blp);
-
-        tabBlock = new TextView(this);
-        tabBlock.setText("DNS");
-        tabBlock.setTextSize(14);
-        tabBlock.setTypeface(null, Typeface.BOLD);
-        tabBlock.setGravity(Gravity.CENTER);
-        tabBlock.setOnClickListener(v -> pager.setCurrentItem(2, true));
-        bar.addView(tabBlock, new LinearLayout.LayoutParams(0, -1, 1f));
-
-        tabSettings = new TextView(this);
-        tabSettings.setText("设置");
-        tabSettings.setTextSize(14);
-        tabSettings.setTypeface(null, Typeface.BOLD);
-        tabSettings.setGravity(Gravity.CENTER);
-        tabSettings.setOnClickListener(v -> pager.setCurrentItem(3, true));
-        bar.addView(tabSettings, new LinearLayout.LayoutParams(0, -1, 1f));
+        tabMessages = addTab(bar, "消息", 0);
+        tabSms = addTab(bar, "短信", 1);
+        tabBlock = addTab(bar, "DNS", 2);
+        tabSettings = addTab(bar, "设置", 3);
         return bar;
+    }
+
+    /** 底部标签：等分宽度，选中变蓝加粗 */
+    private TextView addTab(LinearLayout bar, String text, int page) {
+        TextView tab = new TextView(this);
+        tab.setText(text);
+        tab.setTextSize(14);
+        tab.setGravity(Gravity.CENTER);
+        tab.setPadding(0, dp(10), 0, dp(10));
+        tab.setOnClickListener(v -> pager.setCurrentItem(page, true));
+        bar.addView(tab, new LinearLayout.LayoutParams(0, -2, 1f));
+        return tab;
     }
 
     private ScrollView buildMessagePage() {
@@ -375,7 +335,8 @@ public class MainActivity extends Activity {
 
         // ===== 消息接收 =====
         LinearLayout c1 = card();
-        c1.addView(sectionTitle("消息接收"));
+        runHookBtn = runButton(WebhookPrefs.KEY_WEBHOOK);
+        c1.addView(sectionTitle("消息接收", runHookBtn));
 
         LinearLayout portRow = new LinearLayout(this);
         portRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -507,21 +468,9 @@ public class MainActivity extends Activity {
 
         // ===== 转发地址 =====
         LinearLayout c1 = card();
-        c1.addView(sectionTitle("短信转发"));
-
-        NeoSwitch swSms = newSwitch();
-        swSms.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_SMS, false));
-        swSms.setOnCheckedChangeListener((b, checked) -> {
-            WebhookPrefs.set(this, WebhookPrefs.KEY_SMS, checked);
-            if (checked && checkSelfPermission("android.permission.RECEIVE_SMS")
-                    != PackageManager.PERMISSION_GRANTED) {
-                requestSmsPermission();
-            }
-        });
-        swSmsField = swSms;
-        LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(-1, -2);
-        sLp.topMargin = dp(4);
-        c1.addView(switchCell("启用短信转发", swSms), sLp);
+        runSmsBtn = miniBtn("启动");
+        runSmsBtn.setOnClickListener(v -> toggleSms());
+        c1.addView(sectionTitle("短信转发", runSmsBtn));
 
         smsInput = new EditText(this);
         smsInput.setHint("转发地址");
@@ -636,6 +585,16 @@ public class MainActivity extends Activity {
         content.setPadding(dp(14), dp(6), dp(14), dp(24));
         scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
 
+        // ===== DNS 拦截：状态 + 启动按钮 =====
+        LinearLayout c0 = card();
+        runBlockBtn = runButton(WebhookPrefs.KEY_BLOCK);
+        c0.addView(sectionTitle("DNS 拦截", runBlockBtn));
+        dnsState = new TextView(this);
+        dnsState.setTextSize(13);
+        dnsState.setPadding(0, dp(4), 0, 0);
+        c0.addView(dnsState);
+        content.addView(c0);
+
         // ===== 订阅管理卡片：输入在上，「添加 / 查询」并排在底部 =====
         LinearLayout c1 = card();
         c1.addView(sectionTitle("订阅管理"));
@@ -667,6 +626,24 @@ public class MainActivity extends Activity {
         queryRed.setOnClickListener(v -> openRulesList(RulesListActivity.MODE_REDIRECTS));
         c2.addView(actionRow(addRed, queryRed));
         content.addView(c2);
+
+        // ===== 上游 DNS =====
+        LinearLayout c3 = card();
+        c3.addView(sectionTitle("上游 DNS"));
+        dnsInput = boxInput("留空用默认");
+        dnsInput.setInputType(InputType.TYPE_CLASS_PHONE);
+        dnsInput.setText(WebhookPrefs.dnsUpstream(this));
+        Button saveDns = filledBtn("保存");
+        saveDns.setOnClickListener(v -> saveDns());
+        LinearLayout dRow = new LinearLayout(this);
+        dRow.setOrientation(LinearLayout.HORIZONTAL);
+        dRow.setGravity(Gravity.CENTER_VERTICAL);
+        dRow.addView(dnsInput, new LinearLayout.LayoutParams(0, -2, 1f));
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-2, dp(40));
+        dlp.leftMargin = dp(8);
+        dRow.addView(saveDns, dlp);
+        c3.addView(dRow);
+        content.addView(c3);
         return scroll;
     }
 
@@ -680,55 +657,18 @@ public class MainActivity extends Activity {
         content.setPadding(dp(14), dp(6), dp(14), dp(24));
         scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
 
-        // ===== 功能开关 =====
+        // ===== 通用 =====
+        // 消息接收 / DNS 拦截的开关已移到各自页面的卡片标题，这里只留全局项
         LinearLayout c1 = card();
-        c1.addView(sectionTitle("功能开关"));
-
-        NeoSwitch swHook = newSwitch();
-        swHook.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true));
-        swHook.setOnCheckedChangeListener((b, checked) -> {
-            WebhookPrefs.set(this, WebhookPrefs.KEY_WEBHOOK, checked);
-            if (serviceRunning) sendReload();
-        });
-
-        NeoSwitch swBlock = newSwitch();
-        swBlock.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_BLOCK, true));
-        swBlock.setOnCheckedChangeListener((b, checked) -> {
-            WebhookPrefs.set(this, WebhookPrefs.KEY_BLOCK, checked);
-            if (serviceRunning) sendReload();
-        });
+        c1.addView(sectionTitle("启动"));
 
         NeoSwitch swBoot = newSwitch();
         swBoot.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_BOOT, false));
         swBoot.setOnCheckedChangeListener((b, checked) ->
                 WebhookPrefs.set(this, WebhookPrefs.KEY_BOOT, checked));
 
-        LinearLayout g1 = gridRow();
-        g1.addView(switchCell("消息接收", swHook), cellLp());
-        g1.addView(switchCell("DNS 拦截", swBlock), cellLp());
-        c1.addView(g1);
-        LinearLayout g1b = gridRow();
-        g1b.addView(switchCell("开机自启", swBoot), cellLp());
-        c1.addView(g1b);
+        c1.addView(switchCell("开机自启", swBoot), new LinearLayout.LayoutParams(-1, -2));
         content.addView(c1);
-
-        // ===== DNS =====
-        LinearLayout c1b = card();
-        c1b.addView(sectionTitle("DNS"));
-        dnsInput = boxInput("上游 DNS，留空用默认");
-        dnsInput.setInputType(InputType.TYPE_CLASS_PHONE);
-        dnsInput.setText(WebhookPrefs.dnsUpstream(this));
-        Button saveDns = filledBtn("保存");
-        saveDns.setOnClickListener(v -> saveDns());
-        LinearLayout dRow = new LinearLayout(this);
-        dRow.setOrientation(LinearLayout.HORIZONTAL);
-        dRow.setGravity(Gravity.CENTER_VERTICAL);
-        dRow.addView(dnsInput, new LinearLayout.LayoutParams(0, -2, 1f));
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-2, dp(40));
-        dlp.leftMargin = dp(8);
-        dRow.addView(saveDns, dlp);
-        c1b.addView(dRow);
-        content.addView(c1b);
 
         // ===== 显示 =====
         LinearLayout c2 = card();
@@ -960,50 +900,27 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------ 头部状态
 
     private void refreshHeader() {
-        // 圆形启动按钮：径向渐变 + 白圈 + 投影营造 3D 感；启动后变绿色呼吸灯、「启动」两字消失
-        GradientDrawable circle = new GradientDrawable();
-        circle.setShape(GradientDrawable.OVAL);
-        circle.setStroke(dp(3), 0xFFFFFFFF);
-        circle.setGradientType(GradientDrawable.RADIAL_GRADIENT);
-        circle.setGradientRadius(dp(28));
-        breathDrawable = circle;
-        mainBtn.setBackground(circle);
-        mainBtn.setText(serviceRunning ? "" : "启动");
-        startBreath();
+        boolean hookOn = WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true);
+        boolean blockOn = WebhookPrefs.get(this, WebhookPrefs.KEY_BLOCK, true);
+        if (runHookBtn != null) setRunBtn(runHookBtn, serviceRunning && hookOn);
+        if (runBlockBtn != null) setRunBtn(runBlockBtn, serviceRunning && blockOn);
+        if (runSmsBtn != null) {
+            setRunBtn(runSmsBtn, WebhookPrefs.get(this, WebhookPrefs.KEY_SMS, false));
+        }
+        if (dnsState != null) {
+            dnsState.setText(serviceRunning && blockOn
+                    ? "运行中 · 拦截 " + BlockVpnService.stateRules
+                            + " 条 · 重定向 " + BlockVpnService.stateRedirects + " 条"
+                    : "未启动");
+            dnsState.setTextColor(serviceRunning && blockOn ? 0xFF12A150 : TEXT_SUB);
+        }
         refreshTabs();
     }
 
-    /** 运行中启动呼吸灯动画，停止则恢复蓝色静态并取消动画 */
-    private void startBreath() {
-        if (breathAnim != null) {
-            breathAnim.cancel();
-            breathAnim = null;
-        }
-        if (breathDrawable == null) return;
-        if (!serviceRunning) {
-            breathDrawable.setColors(new int[]{0xFF2C6FE8, 0xFF0A3D9E});
-            return;
-        }
-        ValueAnimator a = ValueAnimator.ofFloat(0f, 1f);
-        a.setDuration(900);
-        a.setRepeatCount(ValueAnimator.INFINITE);
-        a.setRepeatMode(ValueAnimator.REVERSE);
-        a.addUpdateListener(anim -> {
-            if (breathDrawable == null) return;
-            float t = (float) anim.getAnimatedValue();
-            breathColors[0] = lerpColor(BREATH_TOP_DIM, BREATH_TOP_BRIGHT, t);
-            breathColors[1] = lerpColor(BREATH_BOT_DIM, BREATH_BOT_BRIGHT, t);
-            breathDrawable.setColors(breathColors);
-        });
-        a.start();
-        breathAnim = a;
-    }
-
-    private static int lerpColor(int from, int to, float t) {
-        int r = (int) (Color.red(from) + (Color.red(to) - Color.red(from)) * t);
-        int g = (int) (Color.green(from) + (Color.green(to) - Color.green(from)) * t);
-        int b = (int) (Color.blue(from) + (Color.blue(to) - Color.blue(from)) * t);
-        return Color.rgb(r, g, b);
+    /** 启动按钮：未启动蓝底「启动」，运行中绿底「停止」 */
+    private void setRunBtn(Button b, boolean running) {
+        b.setText(running ? "停止" : "启动");
+        b.setBackground(pill(running ? 0xFF12A150 : BLUE));
     }
 
     private void refreshTabs() {
@@ -1015,6 +932,7 @@ public class MainActivity extends Activity {
 
     private void styleTab(TextView tab, boolean selected) {
         tab.setTextColor(selected ? BLUE : TEXT_SUB);
+        tab.setTypeface(null, selected ? Typeface.BOLD : Typeface.NORMAL);
     }
 
     /** 保存自定义 DNS：设置单一上游，运行中通过 reload 立即生效 */
@@ -1028,7 +946,7 @@ public class MainActivity extends Activity {
     private void refreshMessageState() {
         if (portInput == null) return;
         if (!WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true)) {
-            addressView.setText("已在设置页关闭");
+            addressView.setText("消息接收已关闭");
             addressView.setTextColor(TEXT_SUB);
             portHint.setVisibility(View.GONE);
             return;
@@ -1171,24 +1089,64 @@ public class MainActivity extends Activity {
         startService(new Intent(this, BlockVpnService.class).setAction(BlockVpnService.ACTION_RELOAD));
     }
 
-    private void toggleVpn() {
-        if (serviceRunning) {
-            serviceRunning = false; // 先变色再等服务确认，点击即时反馈
-            refreshHeader();
-            startService(new Intent(this, BlockVpnService.class).setAction(BlockVpnService.ACTION_STOP));
-            return;
-        }
-        boolean block = WebhookPrefs.get(this, WebhookPrefs.KEY_BLOCK, true);
-        boolean hook = WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true);
-        if (!block && !hook) {
-            // 短信转发独立运行（广播接收器），不需要启动服务，不算错误
-            if (WebhookPrefs.get(this, WebhookPrefs.KEY_SMS, false)) {
-                toast("短信转发已在后台独立生效，无需启动");
+    /** 短信转发独立开关：只改偏好并申请权限，不依赖后台服务 */
+    private void toggleSms() {
+        boolean on = !WebhookPrefs.get(this, WebhookPrefs.KEY_SMS, false);
+        WebhookPrefs.set(this, WebhookPrefs.KEY_SMS, on);
+        refreshHeader();
+        if (on) {
+            if (checkSelfPermission("android.permission.RECEIVE_SMS")
+                    != PackageManager.PERMISSION_GRANTED) {
+                requestSmsPermission();
             } else {
-                toast("请先在「设置」页打开拦截或消息接收");
+                toast("短信转发已开启");
             }
-            return;
+        } else {
+            toast("短信转发已关闭");
         }
+    }
+
+    /** 卡片标题右侧的启动按钮，绑定到对应的功能开关 */
+    private Button runButton(String key) {
+        Button b = miniBtn("启动");
+        b.setOnClickListener(v -> toggleFeature(key));
+        return b;
+    }
+
+    /**
+     * 卡片按钮：只切换本卡对应的功能。服务是两者共用的，
+     * 关掉一个而另一个还开着时不停服务，两个都关才停。
+     */
+    private void toggleFeature(String key) {
+        boolean on = serviceRunning && WebhookPrefs.get(this, key, true);
+        if (on) {
+            WebhookPrefs.set(this, key, false);
+            String other = WebhookPrefs.KEY_BLOCK.equals(key)
+                    ? WebhookPrefs.KEY_WEBHOOK : WebhookPrefs.KEY_BLOCK;
+            if (WebhookPrefs.get(this, other, true)) {
+                sendReload();
+            } else {
+                serviceRunning = false;
+                startService(new Intent(this, BlockVpnService.class)
+                        .setAction(BlockVpnService.ACTION_STOP));
+            }
+        } else {
+            WebhookPrefs.set(this, key, true);
+            if (!serviceRunning) {
+                startServiceFlow();
+            } else if (WebhookPrefs.KEY_BLOCK.equals(key) && VpnService.prepare(this) != null) {
+                // 服务已在跑（仅消息接收），此时开 DNS 必须先拿 VPN 授权，
+                // 否则 establish() 会失败，DNS 会静默地不生效
+                startActivityForResult(VpnService.prepare(this), REQ_VPN);
+            } else {
+                sendReload();
+            }
+        }
+        refreshHeader();
+    }
+
+    /** 启动后台服务：先确认通知权限（前台服务通知），再走 VPN 授权 */
+    private void startServiceFlow() {
         pendingStart = true;
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")
                 != PackageManager.PERMISSION_GRANTED) {
@@ -1227,11 +1185,9 @@ public class MainActivity extends Activity {
         if (code == REQ_NOTIF && pendingStart) startFlow();
         if (code == REQ_SMS && res.length > 0
                 && res[0] != PackageManager.PERMISSION_GRANTED) {
-            // 未获授权则回滚开关，避免显示为已启用但实际不工作
-            if (swSmsField != null) {
-                swSmsField.setChecked(false);
-            }
+            // 未获授权则回滚，避免显示为已启用但实际不工作
             WebhookPrefs.set(this, WebhookPrefs.KEY_SMS, false);
+            refreshHeader();
             toast("未授予短信权限，短信转发不会生效");
         }
     }
@@ -1245,8 +1201,19 @@ public class MainActivity extends Activity {
                 refreshHeader();
                 startService(new Intent(this, BlockVpnService.class).setAction(BlockVpnService.ACTION_START));
             } else {
+                // 拒授权：DNS 无法建 TUN，回滚拦截开关让界面如实反映；
+                // 消息接收不依赖 VPN，开着就继续以仅接收模式启动
+                WebhookPrefs.set(this, WebhookPrefs.KEY_BLOCK, false);
                 pendingStart = false;
-                toast("未授权 VPN，已取消启动");
+                if (WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true)) {
+                    serviceRunning = true;
+                    startService(new Intent(this, BlockVpnService.class)
+                            .setAction(BlockVpnService.ACTION_START));
+                    toast("未授权 VPN，DNS 拦截已关闭，仅启动消息接收");
+                } else {
+                    toast("未授权 VPN，已取消启动");
+                }
+                refreshHeader();
             }
         } else if (req == REQ_RING) {
             Uri uri = data == null ? null
@@ -1414,8 +1381,14 @@ public class MainActivity extends Activity {
     }
 
     private LinearLayout sectionTitle(String text) {
+        return sectionTitle(text, null);
+    }
+
+    /** 卡片标题行：左侧蓝色竖条 + 标题，右侧可放一个控件（启动按钮） */
+    private LinearLayout sectionTitle(String text, View action) {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, 0, 0, dp(8));
         View bar = new View(this);
         bar.setBackground(roundedBox(BLUE, 2));
         row.addView(bar, new LinearLayout.LayoutParams(dp(4), dp(16)));
@@ -1424,8 +1397,9 @@ public class MainActivity extends Activity {
         t.setTextSize(16);
         t.setTypeface(null, Typeface.BOLD);
         t.setTextColor(TEXT_MAIN);
-        t.setPadding(dp(8), 0, 0, dp(8));
-        row.addView(t);
+        t.setPadding(dp(8), 0, 0, 0);
+        row.addView(t, new LinearLayout.LayoutParams(0, -2, 1f));
+        if (action != null) row.addView(action, new LinearLayout.LayoutParams(-2, dp(30)));
         return row;
     }
 
@@ -1462,6 +1436,22 @@ public class MainActivity extends Activity {
         b.setBackground(pill(BLUE));
         b.setBackgroundTintList(null);
         b.setPadding(dp(18), 0, dp(18), 0);
+        return b;
+    }
+
+    /** 卡片标题右侧的小启动按钮 */
+    private Button miniBtn(String text) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setTextSize(12);
+        b.setTypeface(null, Typeface.BOLD);
+        b.setTextColor(0xFFFFFFFF);
+        b.setAllCaps(false);
+        b.setBackground(pill(BLUE));
+        b.setBackgroundTintList(null);
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        b.setPadding(dp(14), 0, dp(14), 0);
         return b;
     }
 
