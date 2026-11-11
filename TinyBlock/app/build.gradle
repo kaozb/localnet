@@ -1,0 +1,47 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.tinyblock.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.tinyblock.app"
+        minSdk 26
+        targetSdk 34
+        versionCode 3
+        versionName "1.2.0"
+    }
+
+    // 固定 keystore：debug / release 统一签名，升级可覆盖安装
+    signingConfigs {
+        appSign {
+            storeFile rootProject.file('signing/mibo.jks')
+            storePassword 'mibo'
+            keyAlias 'mibo'
+            keyPassword 'mibo'
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.appSign
+        }
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+            signingConfig signingConfigs.appSign
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// 零第三方依赖：仅使用 Android SDK，APK 体积极小
+dependencies {
+}
