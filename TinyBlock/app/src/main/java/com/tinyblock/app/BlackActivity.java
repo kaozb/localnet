@@ -5,7 +5,6 @@ import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
@@ -14,21 +13,23 @@ import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
 /**
- * 模拟锁屏：全屏纯黑 Activity，点屏幕调出「解锁」，双击「解锁」解除。
+ * 模拟锁屏：全屏纯黑 Activity，点屏幕调出「解锁」，点击「解锁」解除。
  * <p>
  * 必须用 Activity 而不是悬浮窗：TYPE_APPLICATION_OVERLAY 层级低于状态栏，
  * 遮罩盖不住状态栏的时钟与电量；只有 Activity 窗口才能收起系统栏。
  * 启动它依赖「显示在其他应用上层」权限——持有该权限的应用可从后台启动 Activity，
  * 所以在别的应用里点悬浮球也能进入黑屏。
+ * <p>
+ * 遮盖视频小窗：画中画窗口的层级高于普通 Activity 但低于「全屏型窗口」。
+ * 锁屏期间窗口挂 FLAG_FULLSCREEN（锁死全屏、无视子窗口占用的 inset）并从
+ * LAYOUT_IN_SCREEN / LAYOUT_NO_LIMITS 改成 LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES，
+ * 画中画小窗就盖不到遮罩之上；FLAG_FULLSCREEN 只能窗口创建前挂，这里在主题里配置。
  */
 public class BlackActivity extends Activity {
 
     private TextView unlock;
-    /** 上一次点击「解锁」的时刻，双击窗口 600ms */
-    private long lastUnlockTap;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -38,6 +39,8 @@ public class BlackActivity extends Activity {
         // 背光压到最低省电（AMOLED 纯黑像素不发光），窗口销毁自动恢复
         WindowManager.LayoutParams lp = w.getAttributes();
         lp.screenBrightness = 0.01f;
+        // 让窗口自己铺满整块屏幕（含刘海/挖孔区域），画中画等子窗口盖不上来
+        lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         w.setAttributes(lp);
 
         FrameLayout root = new FrameLayout(this);
@@ -56,17 +59,8 @@ public class BlackActivity extends Activity {
         bg.setStroke(dp(1), 0x66FFFFFF);
         unlock.setBackground(bg);
         unlock.setVisibility(View.GONE);
-        // 双击才解锁：第一次点击只提示，两次间隔超过 600ms 重新计数，防单次误触
-        unlock.setOnClickListener(v -> {
-            long now = SystemClock.elapsedRealtime();
-            if (now - lastUnlockTap > 600) {
-                lastUnlockTap = now;
-                toast("再点一次解锁");
-                return;
-            }
-            lastUnlockTap = 0;
-            finish();
-        });
+        // 解锁靠下拉通知栏防误触，这里单击立即解除
+        unlock.setOnClickListener(v -> finish());
         FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(dp(96), dp(44));
         blp.gravity = Gravity.CENTER;
         root.addView(unlock, blp);
@@ -97,10 +91,6 @@ public class BlackActivity extends Activity {
     /** 屏蔽返回，防止绕过模拟锁屏 */
     @Override
     public void onBackPressed() {
-    }
-
-    private void toast(String m) {
-        Toast.makeText(this, m, Toast.LENGTH_SHORT).show();
     }
 
     /** 收起系统栏：黑屏必须连状态栏一起盖住，否则时钟电量还亮着 */
