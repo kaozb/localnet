@@ -82,7 +82,8 @@ public class MainActivity extends Activity {
     private Subs subs;
     private RedirectStore redirects;
 
-    /** 底部三个圆形启动按钮：消息 / 短信 / DNS */
+    /** 底部三个圆形启动按钮：消息 / 短信 / DNS，同时只显示当前页对应的一个 */
+    private LinearLayout dotsRow;
     private TextView dotHook;
     private TextView dotSms;
     private TextView dotBlock;
@@ -229,14 +230,14 @@ public class MainActivity extends Activity {
         root.addView(pager, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
+        // 圆形启动按钮：居中排在分隔线上方，只显示当前页面对应的那一个
+        root.addView(buildDots(), new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
         View divider = new View(this);
         divider.setBackgroundColor(DIVIDER);
         root.addView(divider, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(1)));
-
-        // 三个圆形启动按钮：居中排在底部导航栏正上方，紧贴分隔线
-        root.addView(buildDots(), new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         root.addView(buildBottomBar(), new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -273,13 +274,14 @@ public class MainActivity extends Activity {
         pager.setCurrentItem(currentPage, false);
     }
 
-    /** 底部圆形启动按钮行：消息 / 短信 / DNS，居中排在导航栏上方 */
+    /** 圆形启动按钮行：只显示当前页面对应的一个，居中排在分隔线上方 */
     private LinearLayout buildDots() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER);
         row.setBackgroundColor(CARD);
-        row.setPadding(0, dp(10), 0, dp(2));
+        row.setPadding(0, dp(6), 0, dp(8));
+        dotsRow = row;
 
         dotHook = addDot(row, "消息", WebhookPrefs.KEY_WEBHOOK);
         dotSms = addDot(row, "短信", WebhookPrefs.KEY_SMS);
@@ -796,6 +798,12 @@ public class MainActivity extends Activity {
         styleTab(tabSms, currentPage == 1);
         styleTab(tabBlock, currentPage == 2);
         styleTab(tabSettings, currentPage == 3);
+        // 只显示当前页面对应的启动按钮；设置页没有对应功能，整行隐藏不留空白
+        boolean hasDot = currentPage < 3;
+        if (dotsRow != null) dotsRow.setVisibility(hasDot ? View.VISIBLE : View.GONE);
+        if (dotHook != null) dotHook.setVisibility(currentPage == 0 ? View.VISIBLE : View.GONE);
+        if (dotSms != null) dotSms.setVisibility(currentPage == 1 ? View.VISIBLE : View.GONE);
+        if (dotBlock != null) dotBlock.setVisibility(currentPage == 2 ? View.VISIBLE : View.GONE);
     }
 
     private void styleTab(TextView tab, boolean selected) {
