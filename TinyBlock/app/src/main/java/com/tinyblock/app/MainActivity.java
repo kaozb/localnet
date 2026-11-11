@@ -75,7 +75,7 @@ public class MainActivity extends Activity {
 
     /** 底部标签栏高度：标签栏浮在内容之上，页面内容按这个高度留出底部空白 */
     private static final int TAB_BAR_H = 56;
-    /** 圆形启动按钮直径：独立浮在画板右下角，不占标签行 */
+    /** 圆形启动按钮直径：独立浮在标签行上方居中，不占标签行 */
     private static final int FAB_SIZE = 56;
 
     private static final int REQ_VPN = 1;
@@ -240,11 +240,10 @@ public class MainActivity extends Activity {
         root.addView(buildTabBar(), new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, dp(TAB_BAR_H), Gravity.BOTTOM));
 
-        // 启动按钮是一张独立的圆形卡片，浮在画板右下角、标签行上方，不参与标签排布
+        // 启动按钮是一张独立的圆形卡片，浮在标签行上方水平居中，不参与标签排布
         fab = buildFab();
         FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(
-                dp(FAB_SIZE), dp(FAB_SIZE), Gravity.BOTTOM | Gravity.END);
-        flp.rightMargin = dp(16);
+                dp(FAB_SIZE), dp(FAB_SIZE), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         flp.bottomMargin = dp(TAB_BAR_H + 16);
         root.addView(fab, flp);
 
