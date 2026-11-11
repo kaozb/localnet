@@ -31,6 +31,7 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -71,6 +72,9 @@ public class MainActivity extends Activity {
     private int TEXT_SUB;
     private int RED;
 
+    /** 底部标签栏高度：标签栏浮在内容之上，页面内容按这个高度留出底部空白 */
+    private static final int TAB_BAR_H = 56;
+
     private static final int REQ_VPN = 1;
     private static final int REQ_NOTIF = 2;
     private static final int REQ_RING = 3;
@@ -79,11 +83,10 @@ public class MainActivity extends Activity {
     private Subs subs;
     private RedirectStore redirects;
 
-    /** 底部三个圆形启动按钮：消息 / 短信 / DNS，同时只显示当前页对应的一个 */
-    private LinearLayout dotsRow;
-    private TextView dotHook;
-    private TextView dotSms;
-    private TextView dotBlock;
+    /** 圆形启动按钮：浮在标签栏上方的独立圆卡，按当前页显示 消息 / 短信 / DNS */
+    private TextView fab;
+    /** 圆形按钮当前对应的功能 key，设置页为空（按钮隐藏） */
+    private String fabKey;
     private TextView dnsState;
     private TextView tabMessages;
     private TextView tabSms;
@@ -219,16 +222,17 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------ 界面搭建
 
     private void buildUi() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
+        // 整个界面就是一块画板：页面铺满全屏，底部标签与圆形启动按钮直接坐在上面，
+        // 不再有「内容区 + 底部栏」两层容器，也就没有任何外框
+        FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(BG);
 
         pager = new SwipePager(this);
-        root.addView(pager, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+        root.addView(pager, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
-        root.addView(buildBottomBar(), new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        root.addView(buildTabBar(), new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, dp(TAB_BAR_H), Gravity.BOTTOM));
 
         setContentView(root);
 
@@ -262,70 +266,51 @@ public class MainActivity extends Activity {
         pager.setCurrentItem(currentPage, false);
     }
 
-    /** 圆形启动按钮行：只显示当前页面对应的一个，居中排在标签上方（透明，与标签同属一层） */
-    private LinearLayout buildDots() {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER);
-        row.setPadding(0, dp(8), 0, 0);
-        dotsRow = row;
-
-        dotHook = addDot(row, "消息", WebhookPrefs.KEY_WEBHOOK);
-        dotSms = addDot(row, "短信", WebhookPrefs.KEY_SMS);
-        dotBlock = addDot(row, "DNS", WebhookPrefs.KEY_BLOCK);
-        return row;
-    }
-
-    /** 圆形启动按钮：未启动米白灰，启动后绿色；短信不依赖后台服务，单独处理 */
-    private TextView addDot(LinearLayout row, String text, String key) {
-        TextView dot = new TextView(this);
-        dot.setText(text);
-        dot.setTextSize(12);
-        dot.setTypeface(null, Typeface.BOLD);
-        dot.setGravity(Gravity.CENTER);
-        dot.setClickable(true);
-        dot.setOnClickListener(v -> {
-            if (WebhookPrefs.KEY_SMS.equals(key)) toggleSms();
-            else toggleFeature(key);
+    /** 圆形启动按钮：单独一个圆卡，只对应当前页功能 */
+    private TextView buildFab() {
+        TextView b = new TextView(this);
+        b.setTextSize(12);
+        b.setTypeface(null, Typeface.BOLD);
+        b.setGravity(Gravity.CENTER);
+        b.setClickable(true);
+        b.setOnClickListener(v -> {
+            if (fabKey == null) return;
+            if (WebhookPrefs.KEY_SMS.equals(fabKey)) toggleSms();
+            else toggleFeature(fabKey);
         });
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(56), dp(56));
-        lp.leftMargin = dp(10);
-        lp.rightMargin = dp(10);
-        row.addView(dot, lp);
-        return dot;
+        return b;
     }
 
-    /** 底部栏：不画自己的底色，直接坐在页面背景上（全界面只有页面背景这一层）；标签做成浏览器标签样式的圆角块 */
-    private LinearLayout buildBottomBar() {
-        LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.VERTICAL);
-
-        bar.addView(buildDots(), new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
+    /** 底部标签行：四个纯文字标签 + 行尾一个圆形启动按钮，无底色无边框，单层坐在页面背景上 */
+    private LinearLayout buildTabBar() {
         LinearLayout tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
         tabs.setGravity(Gravity.CENTER_VERTICAL);
-        tabs.setPadding(dp(6), dp(2), dp(6), dp(2));
+        tabs.setPadding(dp(6), 0, dp(10), 0);
+        // 与页面背景同色：看不出任何额外一层，但能挡住滑到底时从下面穿过的卡片
+        tabs.setBackgroundColor(BG);
 
         tabMessages = addTab(tabs, "消息", 0);
         tabSms = addTab(tabs, "短信", 1);
         tabBlock = addTab(tabs, "DNS", 2);
         tabSettings = addTab(tabs, "设置", 3);
-        bar.addView(tabs, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        return bar;
+
+        // 启动按钮单独一个圆卡，放在标签行最右端，不占额外一行（48dp 保证点击热区）
+        fab = buildFab();
+        LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(dp(48), dp(48));
+        flp.leftMargin = dp(8);
+        tabs.addView(fab, flp);
+        return tabs;
     }
 
-    /** 底部标签：等分宽度，选中变蓝加粗并浮起一块圆角卡片（浏览器标签观感） */
+    /** 底部标签：等分宽度，选中变蓝加粗 */
     private TextView addTab(LinearLayout bar, String text, int page) {
         TextView tab = new TextView(this);
         tab.setText(text);
         tab.setTextSize(14);
         tab.setGravity(Gravity.CENTER);
-        tab.setPadding(0, dp(9), 0, dp(9));
         tab.setOnClickListener(v -> pager.setCurrentItem(page, true));
-        bar.addView(tab, new LinearLayout.LayoutParams(0, -2, 1f));
+        bar.addView(tab, new LinearLayout.LayoutParams(0, -1, 1f));
         return tab;
     }
 
@@ -334,7 +319,7 @@ public class MainActivity extends Activity {
         scroll.setFillViewport(true);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(14), dp(6), dp(14), dp(24));
+        content.setPadding(dp(14), dp(6), dp(14), dp(TAB_BAR_H + 24));
         scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
 
         // ===== 消息接收 =====
@@ -466,7 +451,7 @@ public class MainActivity extends Activity {
         scroll.setFillViewport(true);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(14), dp(6), dp(14), dp(24));
+        content.setPadding(dp(14), dp(6), dp(14), dp(TAB_BAR_H + 24));
         scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
 
         // ===== 转发地址 =====
@@ -583,7 +568,7 @@ public class MainActivity extends Activity {
         scroll.setFillViewport(true);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(14), dp(6), dp(14), dp(24));
+        content.setPadding(dp(14), dp(6), dp(14), dp(TAB_BAR_H + 24));
         scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
 
         // ===== DNS 拦截：状态 + 启动按钮 =====
@@ -654,7 +639,7 @@ public class MainActivity extends Activity {
         scroll.setFillViewport(true);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(14), dp(6), dp(14), dp(24));
+        content.setPadding(dp(14), dp(6), dp(14), dp(TAB_BAR_H + 24));
         scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
 
         // ===== 通用 =====
@@ -761,11 +746,7 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------ 头部状态
 
     private void refreshHeader() {
-        boolean hookOn = WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true);
         boolean blockOn = WebhookPrefs.get(this, WebhookPrefs.KEY_BLOCK, true);
-        setDot(dotHook, serviceRunning && hookOn);
-        setDot(dotBlock, serviceRunning && blockOn);
-        setDot(dotSms, WebhookPrefs.get(this, WebhookPrefs.KEY_SMS, false));
         if (dnsState != null) {
             dnsState.setText(serviceRunning && blockOn
                     ? "运行中 · 拦截 " + BlockVpnService.stateRules
@@ -776,14 +757,23 @@ public class MainActivity extends Activity {
         refreshTabs();
     }
 
+    /** 当前页对应的功能是否已开启（设置页无对应功能，恒为 false） */
+    private boolean fabOn() {
+        if (fabKey == null) return false;
+        if (WebhookPrefs.KEY_SMS.equals(fabKey)) {
+            return WebhookPrefs.get(this, WebhookPrefs.KEY_SMS, false);
+        }
+        return serviceRunning && WebhookPrefs.get(this, fabKey, true);
+    }
+
     /** 圆形启动按钮：未启动米白灰底，启动后绿底白字（两主题一致，米白底自带对比） */
-    private void setDot(TextView dot, boolean on) {
-        if (dot == null) return;
+    private void setFab(TextView b, boolean on) {
+        if (b == null) return;
         GradientDrawable g = new GradientDrawable();
         g.setShape(GradientDrawable.OVAL);
         g.setColor(on ? GREEN : 0xFFF0EDE6);
-        dot.setBackground(g);
-        dot.setTextColor(on ? Color.WHITE : 0xFF7A8699);
+        b.setBackground(g);
+        b.setTextColor(on ? Color.WHITE : 0xFF7A8699);
     }
 
     private void refreshTabs() {
@@ -791,27 +781,28 @@ public class MainActivity extends Activity {
         styleTab(tabSms, currentPage == 1);
         styleTab(tabBlock, currentPage == 2);
         styleTab(tabSettings, currentPage == 3);
-        // 只显示当前页面对应的启动按钮；设置页没有对应功能，整行隐藏不留空白
-        boolean hasDot = currentPage < 3;
-        if (dotsRow != null) dotsRow.setVisibility(hasDot ? View.VISIBLE : View.GONE);
-        if (dotHook != null) dotHook.setVisibility(currentPage == 0 ? View.VISIBLE : View.GONE);
-        if (dotSms != null) dotSms.setVisibility(currentPage == 1 ? View.VISIBLE : View.GONE);
-        if (dotBlock != null) dotBlock.setVisibility(currentPage == 2 ? View.VISIBLE : View.GONE);
+        // 圆形按钮只对应当前页功能：消息 / 短信 / DNS，设置页隐起来（留位不跳）
+        if (fab == null) return;
+        if (currentPage == 0) {
+            fabKey = WebhookPrefs.KEY_WEBHOOK;
+            fab.setText("消息");
+        } else if (currentPage == 1) {
+            fabKey = WebhookPrefs.KEY_SMS;
+            fab.setText("短信");
+        } else if (currentPage == 2) {
+            fabKey = WebhookPrefs.KEY_BLOCK;
+            fab.setText("DNS");
+        } else {
+            fabKey = null;
+        }
+        fab.setVisibility(fabKey == null ? View.INVISIBLE : View.VISIBLE);
+        setFab(fab, fabOn());
     }
 
+    /** 标签纯文字：选中变蓝加粗，不加底色不加边框（整屏只有一块背景） */
     private void styleTab(TextView tab, boolean selected) {
         tab.setTextColor(selected ? BLUE : TEXT_SUB);
         tab.setTypeface(null, selected ? Typeface.BOLD : Typeface.NORMAL);
-        tab.setBackground(selected ? topRoundedBox(CARD) : null);
-    }
-
-    /** 只有上边两个角是圆角的卡片：选中标签像从内容区延伸下来的一张标签页 */
-    private GradientDrawable topRoundedBox(int color) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(color);
-        float r = dp(12);
-        g.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
-        return g;
     }
 
     /** 保存自定义 DNS：设置单一上游，运行中通过 reload 立即生效 */

@@ -24,6 +24,8 @@ public final class ScreenKeeper {
     private static PowerManager.WakeLock wake;
     private static WindowManager wm;
     private static TextView ball;
+    /** 锁屏球的窗口参数：拖动靠改它的 x/y 实现全屏移动 */
+    private static WindowManager.LayoutParams ballLp;
     private static FrameLayout black;
 
     private ScreenKeeper() {
@@ -55,9 +57,10 @@ public final class ScreenKeeper {
         if (ball != null || !Settings.canDrawOverlays(app)) return;
         if (wm == null) wm = (WindowManager) app.getSystemService(Context.WINDOW_SERVICE);
         if (wm == null) return;
+        ballLp = ballParams(app);
         ball = buildBall(app);
         try {
-            wm.addView(ball, ballParams(app));
+            wm.addView(ball, ballLp);
         } catch (Exception e) {
             ball = null;
         }
@@ -85,7 +88,7 @@ public final class ScreenKeeper {
         return (int) (v * c.getResources().getDisplayMetrics().density + 0.5f);
     }
 
-    /** 44dp 圆形深蓝底 + 浅蓝描边，可拖动；点按切换黑屏 */
+    /** 44dp 圆形深蓝底，无边框，可拖到屏幕任意位置；点按切换黑屏 */
     private static TextView buildBall(Context c) {
         TextView btn = new TextView(c);
         btn.setText("锁屏");
@@ -95,12 +98,11 @@ public final class ScreenKeeper {
         GradientDrawable bg = new GradientDrawable();
         bg.setShape(GradientDrawable.OVAL);
         bg.setColor(0xB317233B);
-        bg.setStroke(dp(c, 1), 0x806DA8FF);
         btn.setBackground(bg);
-        btn.setElevation(dp(c, 6));
 
+        WindowManager.LayoutParams lp = ballLp;
         float[] base = new float[2];
-        float[] start = new float[2];
+        int[] origin = new int[2];
         boolean[] dragged = new boolean[1];
         int slop = ViewConfiguration.get(c).getScaledTouchSlop();
         btn.setOnTouchListener((v, ev) -> {
@@ -108,22 +110,27 @@ public final class ScreenKeeper {
                 case MotionEvent.ACTION_DOWN:
                     base[0] = ev.getRawX();
                     base[1] = ev.getRawY();
-                    start[0] = v.getTranslationX();
-                    start[1] = v.getTranslationY();
+                    origin[0] = lp.x;
+                    origin[1] = lp.y;
                     dragged[0] = false;
                     return true;
                 case MotionEvent.ACTION_MOVE: {
                     float dx = ev.getRawX() - base[0], dy = ev.getRawY() - base[1];
                     if (!dragged[0] && Math.hypot(dx, dy) < slop) return true;
                     dragged[0] = true;
+                    // 球是独立悬浮窗，移动视图超出窗口会被裁掉（表现为只能在局部拖动），
+                    // 必须改窗口坐标：拖动时直接把 lp.x / lp.y 挪过去
                     int sw = c.getResources().getDisplayMetrics().widthPixels;
                     int sh = c.getResources().getDisplayMetrics().heightPixels;
-                    float tx = Math.max(-v.getLeft(), Math.min(
-                            sw - v.getWidth() - v.getLeft(), start[0] + dx));
-                    float ty = Math.max(-v.getTop(), Math.min(
-                            sh - v.getHeight() - v.getTop(), start[1] + dy));
-                    v.setTranslationX(tx);
-                    v.setTranslationY(ty);
+                    int w = lp.width, h = lp.height;
+                    lp.x = Math.max(0, Math.min(sw - w, Math.round(origin[0] + dx)));
+                    lp.y = Math.max(0, Math.min(sh - h, Math.round(origin[1] + dy)));
+                    if (wm != null) {
+                        try {
+                            wm.updateViewLayout(v, lp);
+                        } catch (Exception ignored) {
+                        }
+                    }
                     return true;
                 }
                 case MotionEvent.ACTION_UP:
@@ -138,15 +145,19 @@ public final class ScreenKeeper {
         return btn;
     }
 
+    /** 用左上角定位，初始停在右下角偏上（TOP|START 才能用 lp.x / lp.y 做全屏拖动） */
     private static WindowManager.LayoutParams ballParams(Context c) {
+        int size = dp(c, 44);
+        int sw = c.getResources().getDisplayMetrics().widthPixels;
+        int sh = c.getResources().getDisplayMetrics().heightPixels;
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                dp(c, 44), dp(c, 44),
+                size, size,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT);
-        lp.gravity = Gravity.BOTTOM | Gravity.END;
-        lp.x = dp(c, 16);
-        lp.y = dp(c, 160);
+        lp.gravity = Gravity.TOP | Gravity.START;
+        lp.x = Math.max(0, sw - size - dp(c, 16));
+        lp.y = Math.max(0, sh - size - dp(c, 160));
         return lp;
     }
 
