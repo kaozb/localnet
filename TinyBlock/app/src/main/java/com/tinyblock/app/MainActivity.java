@@ -54,7 +54,6 @@ public class MainActivity extends Activity {
     private static final int LIGHT_INPUT = 0xFFF2F5FB;
     private static final int LIGHT_MAIN = 0xFF17233B;
     private static final int LIGHT_SUB = 0xFF7A8699;
-    private static final int LIGHT_DIVIDER = 0xFFE1E8F2;
     private static final int LIGHT_RED = 0xFFD93025;
     private static final int DARK_BG = 0xFF11161F;
     private static final int DARK_CARD = 0xFF1A2230;
@@ -62,7 +61,6 @@ public class MainActivity extends Activity {
     private static final int DARK_INPUT = 0xFF1E2839;
     private static final int DARK_MAIN = 0xFFE8EEF9;
     private static final int DARK_SUB = 0xFF8B98AD;
-    private static final int DARK_DIVIDER = 0xFF2A3648;
     private static final int DARK_RED = 0xFFFF7061;
 
     private int BG;
@@ -71,7 +69,6 @@ public class MainActivity extends Activity {
     private int INPUT_BG;
     private int TEXT_MAIN;
     private int TEXT_SUB;
-    private int DIVIDER;
     private int RED;
 
     private static final int REQ_VPN = 1;
@@ -230,15 +227,6 @@ public class MainActivity extends Activity {
         root.addView(pager, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        // 圆形启动按钮：居中排在分隔线上方，只显示当前页面对应的那一个
-        root.addView(buildDots(), new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        View divider = new View(this);
-        divider.setBackgroundColor(DIVIDER);
-        root.addView(divider, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(1)));
-
         root.addView(buildBottomBar(), new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
@@ -274,13 +262,12 @@ public class MainActivity extends Activity {
         pager.setCurrentItem(currentPage, false);
     }
 
-    /** 圆形启动按钮行：只显示当前页面对应的一个，居中排在分隔线上方 */
+    /** 圆形启动按钮行：只显示当前页面对应的一个，居中排在标签上方（透明，与标签同属一层） */
     private LinearLayout buildDots() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER);
-        row.setBackgroundColor(CARD);
-        row.setPadding(0, dp(6), 0, dp(8));
+        row.setPadding(0, dp(8), 0, 0);
         dotsRow = row;
 
         dotHook = addDot(row, "消息", WebhookPrefs.KEY_WEBHOOK);
@@ -308,18 +295,26 @@ public class MainActivity extends Activity {
         return dot;
     }
 
-    /** 底部导航栏：消息 | 短信 | DNS | 设置 */
+    /** 底部栏：圆形启动按钮与标签同处一层，共用一块背景，无分隔线 */
     private LinearLayout buildBottomBar() {
         LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setOrientation(LinearLayout.VERTICAL);
         bar.setBackgroundColor(CARD);
-        bar.setPadding(dp(8), dp(6), dp(8), dp(6));
 
-        tabMessages = addTab(bar, "消息", 0);
-        tabSms = addTab(bar, "短信", 1);
-        tabBlock = addTab(bar, "DNS", 2);
-        tabSettings = addTab(bar, "设置", 3);
+        bar.addView(buildDots(), new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setOrientation(LinearLayout.HORIZONTAL);
+        tabs.setGravity(Gravity.CENTER_VERTICAL);
+        tabs.setPadding(dp(8), dp(4), dp(8), dp(6));
+
+        tabMessages = addTab(tabs, "消息", 0);
+        tabSms = addTab(tabs, "短信", 1);
+        tabBlock = addTab(tabs, "DNS", 2);
+        tabSettings = addTab(tabs, "设置", 3);
+        bar.addView(tabs, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         return bar;
     }
 
@@ -736,7 +731,6 @@ public class MainActivity extends Activity {
         INPUT_BG = dark ? DARK_INPUT : LIGHT_INPUT;
         TEXT_MAIN = dark ? DARK_MAIN : LIGHT_MAIN;
         TEXT_SUB = dark ? DARK_SUB : LIGHT_SUB;
-        DIVIDER = dark ? DARK_DIVIDER : LIGHT_DIVIDER;
         RED = dark ? DARK_RED : LIGHT_RED;
 
         // 沉浸式：状态栏/导航栏透明，内容延伸到系统栏底下（insets 顶开），颜色跟随页面背景
