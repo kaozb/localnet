@@ -1,5 +1,6 @@
 package com.tinyblock.app;
 
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
@@ -85,10 +86,12 @@ public class MainActivity extends Activity {
     private Subs subs;
     private RedirectStore redirects;
 
-    /** 圆形启动按钮：浮在标签栏上方的独立圆卡，按当前页显示 消息 / 短信 / DNS */
+    /** 圆形启动按钮：浮在标签栏上方的独立圆卡，统一显示「启动」，只控制当前页功能 */
     private TextView fab;
     /** 圆形按钮当前对应的功能 key，设置页为空（按钮隐藏） */
     private String fabKey;
+    /** 启动态绿色闪烁动画，关停时取消 */
+    private ValueAnimator fabPulse;
     private TextView dnsState;
     private TextView tabMessages;
     private TextView tabSms;
@@ -210,6 +213,7 @@ public class MainActivity extends Activity {
             }
             previewTone = null;
         }
+        if (fabPulse != null) fabPulse.cancel();
     }
 
     @Override
@@ -771,7 +775,7 @@ public class MainActivity extends Activity {
         return serviceRunning && WebhookPrefs.get(this, fabKey, true);
     }
 
-    /** 圆形启动按钮：未启动米白灰底，启动后绿底白字（两主题一致，米白底自带对比） */
+    /** 圆形启动按钮：未启动米白灰底，启动后绿底白字闪烁（两主题一致，米白底自带对比） */
     private void setFab(TextView b, boolean on) {
         if (b == null) return;
         GradientDrawable g = new GradientDrawable();
@@ -779,6 +783,23 @@ public class MainActivity extends Activity {
         g.setColor(on ? GREEN : 0xFFF0EDE6);
         b.setBackground(g);
         b.setTextColor(on ? Color.WHITE : 0xFF7A8699);
+        if (fabPulse != null) {
+            fabPulse.cancel();
+            fabPulse = null;
+        }
+        if (on) {
+            // 启动态呼吸闪烁：透明度 1 → 0.45 循环；广播只会引起重绘、不会重建动画
+            fabPulse = ValueAnimator.ofFloat(1f, 0.45f);
+            fabPulse.setDuration(650);
+            fabPulse.setRepeatCount(ValueAnimator.INFINITE);
+            fabPulse.setRepeatMode(ValueAnimator.REVERSE);
+            fabPulse.addUpdateListener(a -> {
+                if (fab != null) fab.setAlpha((Float) a.getAnimatedValue());
+            });
+            fabPulse.start();
+        } else {
+            b.setAlpha(1f);
+        }
     }
 
     private void refreshTabs() {
@@ -786,17 +807,15 @@ public class MainActivity extends Activity {
         styleTab(tabSms, currentPage == 1);
         styleTab(tabBlock, currentPage == 2);
         styleTab(tabSettings, currentPage == 3);
-        // 圆形按钮只对应当前页功能：消息 / 短信 / DNS
+        // 圆形按钮统一显示「启动」，但只作用于当前页对应的功能（消息 / 短信 / DNS）
         if (fab == null) return;
+        fab.setText("启动");
         if (currentPage == 0) {
             fabKey = WebhookPrefs.KEY_WEBHOOK;
-            fab.setText("消息");
         } else if (currentPage == 1) {
             fabKey = WebhookPrefs.KEY_SMS;
-            fab.setText("短信");
         } else if (currentPage == 2) {
             fabKey = WebhookPrefs.KEY_BLOCK;
-            fab.setText("DNS");
         } else {
             fabKey = null;
         }
