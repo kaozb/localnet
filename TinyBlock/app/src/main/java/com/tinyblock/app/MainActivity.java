@@ -1,7 +1,6 @@
 package com.tinyblock.app;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
 import android.content.ClipData;
@@ -12,7 +11,6 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Insets;
-import android.graphics.PixelFormat;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.media.Ringtone;
@@ -25,16 +23,12 @@ import android.provider.Settings;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
-import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputMethodManager;
-import android.widget.FrameLayout;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
-import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -53,6 +47,7 @@ public class MainActivity extends Activity {
 
     // ---- 配色：BLUE 固定，表面色随黑白主题切换 ----
     private static final int BLUE = 0xFF1A73E8;
+    private static final int GREEN = 0xFF12A150;
     private static final int LIGHT_BG = 0xFFEEF3FB;
     private static final int LIGHT_CARD = 0xFFFFFFFF;
     private static final int LIGHT_ITEM = 0xFFF5F8FD;
@@ -87,10 +82,10 @@ public class MainActivity extends Activity {
     private Subs subs;
     private RedirectStore redirects;
 
-    /** 各卡片标题行上的启动按钮：消息 / 短信 / DNS */
-    private Button runHookBtn;
-    private Button runSmsBtn;
-    private Button runBlockBtn;
+    /** 底部三个圆形启动按钮：消息 / 短信 / DNS */
+    private TextView dotHook;
+    private TextView dotSms;
+    private TextView dotBlock;
     private TextView dnsState;
     private TextView tabMessages;
     private TextView tabSms;
@@ -101,10 +96,6 @@ public class MainActivity extends Activity {
     private int currentPage = 2;
     /** 深色主题 recreate 后要恢复的页码，-1 表示无 */
     private static int pendingPage = -1;
-
-    private boolean keepOn;
-    private View lockOverlay;
-    private View lockBtn;
 
     private EditText portInput;
     private TextView addressView;
@@ -180,18 +171,12 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        applyKeepOn();
+        ScreenKeeper.sync(this);
         refreshHeader();
         refreshMessageState();
         refreshClipSummary();
         refreshPermissions();
         refreshRingValue();
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-        exitBlackScreen();
     }
 
     @Override
@@ -207,21 +192,10 @@ public class MainActivity extends Activity {
                 imm.hideSoftInputFromWindow(f.getWindowToken(), 0);
             }
         }
-        if (!keepOn) return;
-        if (!hasFocus) {
-            // 下拉状态栏/通知栏到底 = 解锁手势：通知栏窗口夺走焦点，失焦即退出黑屏
-            // 并恢复亮度（其他应用小窗抢焦点同理）。① 窗口级亮度覆盖会压住系统
-            // 亮度调节，必须及时撤掉 ② 黑遮罩不透明，会挡住正在操作的小窗
-            exitBlackScreen();
-        }
     }
-
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        // 兜底：黑屏中页面被销毁时拆遮罩、清隐藏系统栏 flag、恢复亮度，
-        // 防止旧 flag 与亮度残留到下次启动（lockOverlay==null 时是空操作）
-        exitBlackScreen();
         try {
             unregisterReceiver(receiver);
         } catch (Exception ignored) {
@@ -237,9 +211,6 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        // 黑屏模拟锁屏期间屏蔽返回：遮罩是 overlay 窗口不随 Activity 销毁（前台服务
-        // 保活进程），Activity 被退出后解锁手势（下拉通知栏失焦）将无法再触达
-        if (lockOverlay != null) return;
         if (pager != null && pager.getCurrentItem() > 0) {
             pager.setCurrentItem(pager.getCurrentItem() - 1, true);
             return;
@@ -262,6 +233,10 @@ public class MainActivity extends Activity {
         divider.setBackgroundColor(DIVIDER);
         root.addView(divider, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(1)));
+
+        // 三个圆形启动按钮：居中排在底部导航栏正上方，紧贴分隔线
+        root.addView(buildDots(), new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         root.addView(buildBottomBar(), new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -296,6 +271,39 @@ public class MainActivity extends Activity {
             }
         });
         pager.setCurrentItem(currentPage, false);
+    }
+
+    /** 底部圆形启动按钮行：消息 / 短信 / DNS，居中排在导航栏上方 */
+    private LinearLayout buildDots() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER);
+        row.setBackgroundColor(CARD);
+        row.setPadding(0, dp(10), 0, dp(2));
+
+        dotHook = addDot(row, "消息", WebhookPrefs.KEY_WEBHOOK);
+        dotSms = addDot(row, "短信", WebhookPrefs.KEY_SMS);
+        dotBlock = addDot(row, "DNS", WebhookPrefs.KEY_BLOCK);
+        return row;
+    }
+
+    /** 圆形启动按钮：未启动米白灰，启动后绿色；短信不依赖后台服务，单独处理 */
+    private TextView addDot(LinearLayout row, String text, String key) {
+        TextView dot = new TextView(this);
+        dot.setText(text);
+        dot.setTextSize(12);
+        dot.setTypeface(null, Typeface.BOLD);
+        dot.setGravity(Gravity.CENTER);
+        dot.setClickable(true);
+        dot.setOnClickListener(v -> {
+            if (WebhookPrefs.KEY_SMS.equals(key)) toggleSms();
+            else toggleFeature(key);
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(56), dp(56));
+        lp.leftMargin = dp(10);
+        lp.rightMargin = dp(10);
+        row.addView(dot, lp);
+        return dot;
     }
 
     /** 底部导航栏：消息 | 短信 | DNS | 设置 */
@@ -335,8 +343,7 @@ public class MainActivity extends Activity {
 
         // ===== 消息接收 =====
         LinearLayout c1 = card();
-        runHookBtn = runButton(WebhookPrefs.KEY_WEBHOOK);
-        c1.addView(sectionTitle("消息接收", runHookBtn));
+        c1.addView(sectionTitle("消息接收"));
 
         LinearLayout portRow = new LinearLayout(this);
         portRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -468,9 +475,7 @@ public class MainActivity extends Activity {
 
         // ===== 转发地址 =====
         LinearLayout c1 = card();
-        runSmsBtn = miniBtn("启动");
-        runSmsBtn.setOnClickListener(v -> toggleSms());
-        c1.addView(sectionTitle("短信转发", runSmsBtn));
+        c1.addView(sectionTitle("短信转发"));
 
         smsInput = new EditText(this);
         smsInput.setHint("转发地址");
@@ -587,8 +592,7 @@ public class MainActivity extends Activity {
 
         // ===== DNS 拦截：状态 + 启动按钮 =====
         LinearLayout c0 = card();
-        runBlockBtn = runButton(WebhookPrefs.KEY_BLOCK);
-        c0.addView(sectionTitle("DNS 拦截", runBlockBtn));
+        c0.addView(sectionTitle("DNS 拦截"));
         dnsState = new TextView(this);
         dnsState.setTextSize(13);
         dnsState.setPadding(0, dp(4), 0, 0);
@@ -678,7 +682,10 @@ public class MainActivity extends Activity {
         swKeep.setChecked(WebhookPrefs.get(this, WebhookPrefs.KEY_KEEP_ON, false));
         swKeep.setOnCheckedChangeListener((b, checked) -> {
             WebhookPrefs.set(this, WebhookPrefs.KEY_KEEP_ON, checked);
-            applyKeepOn();
+            if (checked && !Settings.canDrawOverlays(this)) {
+                toast("常亮已开；锁屏球需要「悬浮窗权限」，请在下方权限卡片开启");
+            }
+            ScreenKeeper.sync(this);
         });
 
         NeoSwitch swDark = newSwitch();
@@ -756,171 +763,32 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 屏幕常亮：前台保持亮屏；悬浮球点按黑屏模拟锁屏，下拉通知栏到底自动解除 */
-    private void applyKeepOn() {
-        keepOn = WebhookPrefs.get(this, WebhookPrefs.KEY_KEEP_ON, false);
-        Window w = getWindow();
-        if (keepOn) {
-            w.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            showLockButton();
-        } else {
-            w.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            exitBlackScreen();
-            hideLockButton();
-        }
-    }
-
-    /** 悬浮球：44dp 圆形深蓝底 + 浅蓝描边，可拖动；点按进入黑屏，下拉通知栏解除 */
-    private void showLockButton() {
-        if (lockBtn != null) return;
-        TextView btn = new TextView(this);
-        btn.setText("锁屏");
-        btn.setTextColor(Color.WHITE);
-        btn.setTextSize(10);
-        btn.setGravity(Gravity.CENTER);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setShape(GradientDrawable.OVAL);
-        bg.setColor(0xB317233B);
-        bg.setStroke(dp(1), 0x806DA8FF);
-        btn.setBackground(bg);
-        btn.setElevation(dp(6));
-
-        float[] base = new float[2];
-        float[] start = new float[2];
-        boolean[] dragged = new boolean[1];
-        int slop = ViewConfiguration.get(this).getScaledTouchSlop();
-        btn.setOnTouchListener((v, ev) -> {
-            switch (ev.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN:
-                    base[0] = ev.getRawX();
-                    base[1] = ev.getRawY();
-                    start[0] = v.getTranslationX();
-                    start[1] = v.getTranslationY();
-                    dragged[0] = false;
-                    return true;
-                case MotionEvent.ACTION_MOVE: {
-                    float dx = ev.getRawX() - base[0], dy = ev.getRawY() - base[1];
-                    if (!dragged[0] && Math.hypot(dx, dy) < slop) return true;
-                    dragged[0] = true;
-                    FrameLayout decor = (FrameLayout) getWindow().getDecorView();
-                    float tx = Math.max(-v.getLeft(), Math.min(
-                            decor.getWidth() - v.getWidth() - v.getLeft(), start[0] + dx));
-                    float ty = Math.max(-v.getTop(), Math.min(
-                            decor.getHeight() - v.getHeight() - v.getTop(), start[1] + dy));
-                    v.setTranslationX(tx);
-                    v.setTranslationY(ty);
-                    return true;
-                }
-                case MotionEvent.ACTION_UP:
-                    if (!dragged[0]) toggleBlackScreen();
-                    return true;
-            }
-            return false;
-        });
-
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                dp(44), dp(44), Gravity.BOTTOM | Gravity.END);
-        lp.rightMargin = dp(16);
-        lp.bottomMargin = dp(160);
-        ((ViewGroup) getWindow().getDecorView()).addView(btn, lp);
-        lockBtn = btn;
-    }
-
-    private void hideLockButton() {
-        if (lockBtn == null) return;
-        ((ViewGroup) getWindow().getDecorView()).removeView(lockBtn);
-        lockBtn = null;
-    }
-
-    private void toggleBlackScreen() {
-        if (lockOverlay == null) enterBlackScreen();
-        else exitBlackScreen();
-    }
-
-    /** 黑屏：系统级全屏纯黑遮罩模拟锁屏，亮度压到最低省电；画中画/小窗等其他应用的
-     *  系统窗口也一起盖住（应用窗口内的遮罩盖不住它们）。悬浮球随黑屏隐藏；
-     *  解锁方式：下拉通知栏拉到底，窗口失焦自动解除（见 onWindowFocusChanged） */
-    private void enterBlackScreen() {
-        if (lockOverlay != null) return;
-        if (!Settings.canDrawOverlays(this)) {
-            toast("黑屏需要「显示在其他应用上层」权限");
-            return;
-        }
-        // 遮罩用系统级 overlay 窗口（同悬浮通知条）：Activity 内遮罩是应用层窗口，
-        // 盖不住画中画/自由窗口等系统窗口（小窗会浮在黑屏上面）；
-        // overlay 层级低于状态栏（系统强制状态栏在应用悬浮窗之上），盖不住时钟/电量，
-        // 所以黑屏期间临时隐藏系统栏，退出时在 exitBlackScreen 清 flag 恢复
-        FrameLayout overlay = new FrameLayout(this);
-        overlay.setBackgroundColor(0xFF000000);
-        getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_FULLSCREEN
-                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-        try {
-            wm().addView(overlay, new WindowManager.LayoutParams(
-                    WindowManager.LayoutParams.MATCH_PARENT,
-                    WindowManager.LayoutParams.MATCH_PARENT,
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                    PixelFormat.OPAQUE));
-        } catch (Exception ignored) {
-            return;
-        }
-        lockOverlay = overlay;
-        lockBtn.setVisibility(View.INVISIBLE);
-        setBrightness(0.01f);
-    }
-
-    private void exitBlackScreen() {
-        if (lockOverlay == null) return;
-        try {
-            wm().removeView(lockOverlay);
-        } catch (Exception ignored) {
-        }
-        lockOverlay = null;
-        // 黑屏期间设置的隐藏系统栏 flag 由 applyTheme 统一复位为基准态
-        // （它是系统栏状态唯一入口），避免旧 flag 残留致状态栏染色失效
-        applyTheme();
-        if (lockBtn != null) lockBtn.setVisibility(View.VISIBLE);
-        setBrightness(WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE);
-    }
-
-    private WindowManager wm() {
-        return (WindowManager) getSystemService(WINDOW_SERVICE);
-    }
-
-    private void setBrightness(float v) {
-        Window w = getWindow();
-        WindowManager.LayoutParams lp = w.getAttributes();
-        if (lp.screenBrightness == v) return;
-        lp.screenBrightness = v;
-        w.setAttributes(lp);
-    }
-
     // ------------------------------------------------------------------ 头部状态
 
     private void refreshHeader() {
         boolean hookOn = WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true);
         boolean blockOn = WebhookPrefs.get(this, WebhookPrefs.KEY_BLOCK, true);
-        if (runHookBtn != null) setRunBtn(runHookBtn, serviceRunning && hookOn);
-        if (runBlockBtn != null) setRunBtn(runBlockBtn, serviceRunning && blockOn);
-        if (runSmsBtn != null) {
-            setRunBtn(runSmsBtn, WebhookPrefs.get(this, WebhookPrefs.KEY_SMS, false));
-        }
+        setDot(dotHook, serviceRunning && hookOn);
+        setDot(dotBlock, serviceRunning && blockOn);
+        setDot(dotSms, WebhookPrefs.get(this, WebhookPrefs.KEY_SMS, false));
         if (dnsState != null) {
             dnsState.setText(serviceRunning && blockOn
                     ? "运行中 · 拦截 " + BlockVpnService.stateRules
                             + " 条 · 重定向 " + BlockVpnService.stateRedirects + " 条"
                     : "未启动");
-            dnsState.setTextColor(serviceRunning && blockOn ? 0xFF12A150 : TEXT_SUB);
+            dnsState.setTextColor(serviceRunning && blockOn ? GREEN : TEXT_SUB);
         }
         refreshTabs();
     }
 
-    /** 启动按钮：未启动蓝底「启动」，运行中绿底「停止」 */
-    private void setRunBtn(Button b, boolean running) {
-        b.setText(running ? "停止" : "启动");
-        b.setBackground(pill(running ? 0xFF12A150 : BLUE));
+    /** 圆形启动按钮：未启动米白灰底，启动后绿底白字（两主题一致，米白底自带对比） */
+    private void setDot(TextView dot, boolean on) {
+        if (dot == null) return;
+        GradientDrawable g = new GradientDrawable();
+        g.setShape(GradientDrawable.OVAL);
+        g.setColor(on ? GREEN : 0xFFF0EDE6);
+        dot.setBackground(g);
+        dot.setTextColor(on ? Color.WHITE : 0xFF7A8699);
     }
 
     private void refreshTabs() {
@@ -1106,15 +974,8 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 卡片标题右侧的启动按钮，绑定到对应的功能开关 */
-    private Button runButton(String key) {
-        Button b = miniBtn("启动");
-        b.setOnClickListener(v -> toggleFeature(key));
-        return b;
-    }
-
     /**
-     * 卡片按钮：只切换本卡对应的功能。服务是两者共用的，
+     * 圆形按钮：只切换自己对应的功能。服务是消息与 DNS 共用的，
      * 关掉一个而另一个还开着时不停服务，两个都关才停。
      */
     private void toggleFeature(String key) {
@@ -1380,12 +1241,8 @@ public class MainActivity extends Activity {
         return c;
     }
 
+    /** 卡片标题行：左侧蓝色竖条 + 标题 */
     private LinearLayout sectionTitle(String text) {
-        return sectionTitle(text, null);
-    }
-
-    /** 卡片标题行：左侧蓝色竖条 + 标题，右侧可放一个控件（启动按钮） */
-    private LinearLayout sectionTitle(String text, View action) {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, 0, 0, dp(8));
@@ -1399,7 +1256,6 @@ public class MainActivity extends Activity {
         t.setTextColor(TEXT_MAIN);
         t.setPadding(dp(8), 0, 0, 0);
         row.addView(t, new LinearLayout.LayoutParams(0, -2, 1f));
-        if (action != null) row.addView(action, new LinearLayout.LayoutParams(-2, dp(30)));
         return row;
     }
 
@@ -1436,22 +1292,6 @@ public class MainActivity extends Activity {
         b.setBackground(pill(BLUE));
         b.setBackgroundTintList(null);
         b.setPadding(dp(18), 0, dp(18), 0);
-        return b;
-    }
-
-    /** 卡片标题右侧的小启动按钮 */
-    private Button miniBtn(String text) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setTextSize(12);
-        b.setTypeface(null, Typeface.BOLD);
-        b.setTextColor(0xFFFFFFFF);
-        b.setAllCaps(false);
-        b.setBackground(pill(BLUE));
-        b.setBackgroundTintList(null);
-        b.setMinWidth(0);
-        b.setMinimumWidth(0);
-        b.setPadding(dp(14), 0, dp(14), 0);
         return b;
     }
 

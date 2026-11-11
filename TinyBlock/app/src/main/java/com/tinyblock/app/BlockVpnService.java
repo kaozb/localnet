@@ -116,6 +116,9 @@ public class BlockVpnService extends VpnService {
 
         startForegroundCompat();
         running = true;
+        // 常亮/锁屏球挂在系统级悬浮窗上，服务（重新）启动时重新挂一遍，
+        // 保证进程被回收重启后依然全局生效
+        ScreenKeeper.sync(this);
         dnsEnabled = WebhookPrefs.get(this, WebhookPrefs.KEY_BLOCK, true);
         if (dnsEnabled) ensureTunnel();
         if (!running) return START_STICKY; // TUN 建立失败，已自行停止
