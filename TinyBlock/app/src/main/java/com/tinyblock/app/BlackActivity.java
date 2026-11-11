@@ -1,21 +1,17 @@
 package com.tinyblock.app;
 
 import android.app.Activity;
-import android.graphics.Color;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
-import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
-import android.widget.TextView;
 
 /**
- * 模拟锁屏：全屏纯黑 Activity，点屏幕调出「解锁」，点击「解锁」解除。
+ * 模拟锁屏：全屏纯黑 Activity。
  * <p>
  * 必须用 Activity 而不是悬浮窗：TYPE_APPLICATION_OVERLAY 层级低于状态栏，
  * 遮罩盖不住状态栏的时钟与电量；只有 Activity 窗口才能收起系统栏。
@@ -26,10 +22,14 @@ import android.widget.TextView;
  * 锁屏期间窗口挂 FLAG_FULLSCREEN（锁死全屏、无视子窗口占用的 inset）并从
  * LAYOUT_IN_SCREEN / LAYOUT_NO_LIMITS 改成 LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES，
  * 画中画小窗就盖不到遮罩之上；FLAG_FULLSCREEN 只能窗口创建前挂，这里在主题里配置。
+ * <p>
+ * 解锁无屏幕内按钮，两种手势等价：
+ * 下拉通知栏——沉浸模式下滑入的是透明瞬时栏，拉到顶会盖住本窗口并夺走窗口焦点；
+ * 底部上滑手势——系统手势导航接管，切走后窗口同样失去焦点。
+ * 两路在 onWindowFocusChanged(false) 汇合 finish()，轻微下拉的半透明遮罩
+ * 不抢焦点、松手自动收回，不会误触。
  */
 public class BlackActivity extends Activity {
-
-    private TextView unlock;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -42,30 +42,21 @@ public class BlackActivity extends Activity {
         // 让窗口自己铺满整块屏幕（含刘海/挖孔区域），画中画等子窗口盖不上来
         lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         w.setAttributes(lp);
+        setContentView(new FrameLayout(this));
+        listenUnlock();
+    }
 
-        FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.BLACK);
-        root.setOnClickListener(v -> unlock.setVisibility(
-                unlock.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
-
-        unlock = new TextView(this);
-        unlock.setText("解锁");
-        unlock.setTextColor(Color.WHITE);
-        unlock.setTextSize(14);
-        unlock.setGravity(Gravity.CENTER);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0x33FFFFFF);
-        bg.setCornerRadius(dp(24));
-        bg.setStroke(dp(1), 0x66FFFFFF);
-        unlock.setBackground(bg);
-        unlock.setVisibility(View.GONE);
-        // 解锁靠下拉通知栏防误触，这里单击立即解除
-        unlock.setOnClickListener(v -> finish());
-        FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(dp(96), dp(44));
-        blp.gravity = Gravity.CENTER;
-        root.addView(unlock, blp);
-
-        setContentView(root);
+    /**
+     * 手势解锁信号源：系统栏从隐藏变可见的瞬间。全版本可用
+     * （API 30+ 标记过时但仍工作），等价换 WindowInsets 回调要按版本写两套，不值。
+     */
+    private void listenUnlock() {
+        // 只盯状态栏+导航栏这两个标记：全屏沉浸下二者都清零，滑出瞬时栏即触发；
+        // 窗口自身的 inset 变化（刘海避让等）不动这两个标记，不会误触
+        final int bars = View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
+        getWindow().getDecorView().setOnSystemUiVisibilityChangeListener(visibility -> {
+            if ((visibility & bars) != bars) finish();
+        });
     }
 
     @Override
@@ -82,10 +73,15 @@ public class BlackActivity extends Activity {
         ScreenKeeper.setBlackVisible(false);
     }
 
+    /**
+     * 通知栏拉满盖住窗口、底部上滑手势切走，都会走到这里——第二路解锁信号，
+     * 与系统栏可见回调互为兜底（各家系统手势路径不一，双保险）。
+     */
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) hideBars();
+        else finish();
     }
 
     /** 屏蔽返回，防止绕过模拟锁屏 */
@@ -107,9 +103,5 @@ public class BlackActivity extends Activity {
                     | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                     | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         }
-    }
-
-    private int dp(int v) {
-        return Math.round(v * getResources().getDisplayMetrics().density);
     }
 }

@@ -12,10 +12,10 @@
     </style>
 
     <!--
-      模拟锁屏：纯黑全屏，无标题栏，状态栏导航栏也黑。
+      模拟锁屏：纯黑全屏，状态栏导航栏也黑。
       windowFullscreen 挂 FLAG_FULLSCREEN：锁死全屏、无视画中画等子窗口占用的 inset，
       这是遮盖视频小窗的关键——该 flag 只能在窗口创建前设置，不能运行时 addFlags。
-      LAYOUT_IN_SCREEN / cutout shortEdges 让窗口铺满整块屏幕含刘海区（cutout 属性 API 28+ 才有，用 values-v28 覆盖）。
+      铺满刘海区需要 cutout shortEdges（API 28+ 属性），完整 BlackTheme 复制在 values-v28。
     -->
     <style name="BlackTheme" parent="android:Theme.Material.NoActionBar.Fullscreen">
         <item name="android:windowBackground">#000000</item>
@@ -23,6 +23,5 @@
         <item name="android:navigationBarColor">#000000</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowFullscreen">true</item>
-        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 </resources>

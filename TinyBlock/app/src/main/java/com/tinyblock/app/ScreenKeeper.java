@@ -81,7 +81,7 @@ public final class ScreenKeeper {
 
     /**
      * 黑屏期间把悬浮球从窗口里摘掉：GONE 只是不画，44dp 的悬浮窗仍在最上层，
-     * 会吞掉那一片的点击（遮罩上「点屏幕调出解锁」就点不动）。
+     * 会吞掉那一片的点击（黑屏解锁靠下拉通知栏/底部上滑手势，不能被球挡住）。
      */
     static void setBlackVisible(boolean on) {
         blackOn = on;
