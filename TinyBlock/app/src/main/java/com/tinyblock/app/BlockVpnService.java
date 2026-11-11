@@ -78,7 +78,7 @@ public class BlockVpnService extends VpnService {
     /** 实际使用的上游：设置里填了自定义 DNS 就只用它 */
     private volatile String[] upstream = DEFAULT_UPSTREAM;
     private volatile boolean running = false;
-    /** DNS 拦截开关（设置页）：关闭时 DNS 全部直通上游 */
+    /** DNS 拦截开关（DNS 页圆形按钮）：关闭时立即拆除 TUN，VPN 断开 */
     private volatile boolean dnsEnabled = true;
 
     private volatile WebhookServer server;
@@ -216,19 +216,27 @@ public class BlockVpnService extends VpnService {
         boolean block = WebhookPrefs.get(this, WebhookPrefs.KEY_BLOCK, true);
         boolean hook = WebhookPrefs.get(this, WebhookPrefs.KEY_WEBHOOK, true);
         dnsEnabled = block;
-        if (block) ensureTunnel(); // 关闭时保留 TUN 但 DNS 全部直通，避免频繁建断
+        if (block) {
+            ensureTunnel(); // 未建则重建；已建则原样返回
+        } else {
+            tearDownTunnel(); // 关闭立即断开 VPN 连接，系统 VPN 图标消失
+        }
         if (hook) {
             reloadWebhookIfNeeded();
         } else {
             stopWebhook();
         }
+        // 两个功能都关了：整个服务停掉，不留前台通知
+        if (!block && !hook) {
+            stopEverything();
+            return;
+        }
         updateNotification();
         broadcastStatus();
     }
 
-    private void stopEverything() {
-        running = false;
-        stopWebhook();
+    /** 拆除 TUN：立即断开 VPN 连接，DNS 不再经过本应用；消息接收不受影响 */
+    private void tearDownTunnel() {
         ParcelFileDescriptor fd = tun;
         tun = null;
         if (fd != null) try {
@@ -239,6 +247,12 @@ public class BlockVpnService extends VpnService {
         pool = null;
         if (p != null) p.shutdownNow();
         worker = null;
+    }
+
+    private void stopEverything() {
+        running = false;
+        stopWebhook();
+        tearDownTunnel();
         try {
             stopForeground(true);
         } catch (Exception ignored) {
