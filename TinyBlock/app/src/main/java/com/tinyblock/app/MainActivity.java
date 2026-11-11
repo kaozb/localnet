@@ -247,6 +247,9 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        // 黑屏模拟锁屏期间屏蔽返回：遮罩是 overlay 窗口不随 Activity 销毁（前台服务
+        // 保活进程），返回退出 Activity 会让黑屏失去解锁出口
+        if (lockOverlay != null) return;
         if (pager != null && pager.getCurrentItem() > 0) {
             pager.setCurrentItem(pager.getCurrentItem() - 1, true);
             return;
