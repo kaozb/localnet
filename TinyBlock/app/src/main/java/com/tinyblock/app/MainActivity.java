@@ -22,7 +22,6 @@ import android.net.Uri;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.SystemClock;
 import android.provider.Settings;
 import android.text.InputType;
 import android.text.TextUtils;
@@ -220,9 +219,9 @@ public class MainActivity extends Activity {
         }
         if (!keepOn) return;
         if (!hasFocus) {
-            // 下拉状态栏/通知栏、其他应用小窗抢焦点时退出黑屏并恢复默认亮度：
-            // ① 窗口级亮度覆盖会压住系统亮度调节，必须及时撤掉
-            // ② 黑遮罩不透明，会挡住正在操作的小窗
+            // 下拉状态栏/通知栏到底 = 解锁手势：通知栏窗口夺走焦点，失焦即退出黑屏
+            // 并恢复亮度（其他应用小窗抢焦点同理）。① 窗口级亮度覆盖会压住系统
+            // 亮度调节，必须及时撤掉 ② 黑遮罩不透明，会挡住正在操作的小窗
             exitBlackScreen();
         }
     }
@@ -249,7 +248,7 @@ public class MainActivity extends Activity {
     @Override
     public void onBackPressed() {
         // 黑屏模拟锁屏期间屏蔽返回：遮罩是 overlay 窗口不随 Activity 销毁（前台服务
-        // 保活进程），返回退出 Activity 会让黑屏失去解锁出口
+        // 保活进程），Activity 被退出后解锁手势（下拉通知栏失焦）将无法再触达
         if (lockOverlay != null) return;
         if (pager != null && pager.getCurrentItem() > 0) {
             pager.setCurrentItem(pager.getCurrentItem() - 1, true);
@@ -791,7 +790,7 @@ public class MainActivity extends Activity {
         g2.addView(switchCell("屏幕常亮", swKeep), cellLp());
         g2.addView(switchCell("深色主题", swDark), cellLp());
         c2.addView(g2);
-        c2.addView(note("常亮：应用在前台时保持亮屏，屏幕出现可拖动的悬浮球；点悬浮球黑屏（模拟锁屏），黑屏中点屏幕调出/隐藏悬浮球，点悬浮球解除黑屏。"));
+        c2.addView(note("常亮：应用在前台时保持亮屏，屏幕出现可拖动的悬浮球；点悬浮球黑屏（模拟锁屏），下拉通知栏拉到底即解除黑屏。"));
         content.addView(c2);
 
         // ===== 权限 =====
@@ -867,7 +866,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 屏幕常亮：前台保持亮屏；悬浮球点按黑屏模拟锁屏，黑屏中点屏幕调出悬浮球，点悬浮球恢复 */
+    /** 屏幕常亮：前台保持亮屏；悬浮球点按黑屏模拟锁屏，下拉通知栏到底自动解除 */
     private void applyKeepOn() {
         keepOn = WebhookPrefs.get(this, WebhookPrefs.KEY_KEEP_ON, false);
         Window w = getWindow();
@@ -881,25 +880,19 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 悬浮球/黑屏解锁按钮共用外观：44dp 圆形深蓝底 + 浅蓝描边 */
-    private TextView newLockChip(String text) {
+    /** 悬浮球：44dp 圆形深蓝底 + 浅蓝描边，可拖动；点按进入黑屏，下拉通知栏解除 */
+    private void showLockButton() {
+        if (lockBtn != null) return;
+        TextView btn = new TextView(this);
+        btn.setText("锁屏");
+        btn.setTextColor(Color.WHITE);
+        btn.setTextSize(10);
+        btn.setGravity(Gravity.CENTER);
         GradientDrawable bg = new GradientDrawable();
         bg.setShape(GradientDrawable.OVAL);
         bg.setColor(0xB317233B);
         bg.setStroke(dp(1), 0x806DA8FF);
-        TextView tv = new TextView(this);
-        tv.setText(text);
-        tv.setTextColor(Color.WHITE);
-        tv.setTextSize(10);
-        tv.setGravity(Gravity.CENTER);
-        tv.setBackground(bg);
-        return tv;
-    }
-
-    /** 悬浮球：可拖动；点按进入黑屏，黑屏中点按恢复 */
-    private void showLockButton() {
-        if (lockBtn != null) return;
-        TextView btn = newLockChip("锁屏");
+        btn.setBackground(bg);
         btn.setElevation(dp(6));
 
         float[] base = new float[2];
@@ -955,8 +948,8 @@ public class MainActivity extends Activity {
     }
 
     /** 黑屏：系统级全屏纯黑遮罩模拟锁屏，亮度压到最低省电；画中画/小窗等其他应用的
-     *  系统窗口也一起盖住（应用窗口内的遮罩盖不住它们）。悬浮球随黑屏隐藏；点黑屏
-     *  调出/隐藏遮罩内的「解锁」按钮，双击它才解除黑屏，避免误触下层 */
+     *  系统窗口也一起盖住（应用窗口内的遮罩盖不住它们）。悬浮球随黑屏隐藏；
+     *  解锁方式：下拉通知栏拉到底，窗口失焦自动解除（见 onWindowFocusChanged） */
     private void enterBlackScreen() {
         if (lockOverlay != null) return;
         if (!Settings.canDrawOverlays(this)) {
@@ -973,25 +966,6 @@ public class MainActivity extends Activity {
                 View.SYSTEM_UI_FLAG_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-        // 悬浮球在应用窗口里，被本遮罩盖住点不到；解锁出口直接做进遮罩窗口内。
-        // 双击解除：单击仅脉冲反馈表示已响应，误触不再直接解锁
-        TextView unlock = newLockChip("解锁");
-        unlock.setVisibility(View.INVISIBLE);
-        long[] lastUnlockTap = {0};
-        unlock.setOnClickListener(v -> {
-            long now = SystemClock.elapsedRealtime();
-            if (now - lastUnlockTap[0] < ViewConfiguration.getDoubleTapTimeout()) {
-                exitBlackScreen();
-            } else {
-                lastUnlockTap[0] = now;
-                v.animate().scaleX(1.25f).scaleY(1.25f).setDuration(90)
-                        .withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(140)).start();
-            }
-        });
-        overlay.addView(unlock, new FrameLayout.LayoutParams(
-                dp(44), dp(44), Gravity.CENTER));
-        overlay.setOnClickListener(v -> unlock.setVisibility(
-                unlock.getVisibility() == View.VISIBLE ? View.INVISIBLE : View.VISIBLE));
         try {
             wm().addView(overlay, new WindowManager.LayoutParams(
                     WindowManager.LayoutParams.MATCH_PARENT,
