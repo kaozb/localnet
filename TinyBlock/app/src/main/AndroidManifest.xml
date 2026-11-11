@@ -32,7 +32,9 @@
             android:exported="false"
             android:parentActivityName=".MainActivity" />
 
-        <!-- 模拟锁屏：黑屏必须用 Activity 才能盖住状态栏（悬浮窗层级低于状态栏） -->
+        <!-- 模拟锁屏：黑屏必须用 Activity 才能盖住状态栏（悬浮窗层级低于状态栏）。
+             singleInstance 独立 task、启动必带 FLAG_ACTIVITY_NEW_TASK：黑屏绝不与
+             主界面同 task，否则返回键从黑屏退回主界面，等于绕过锁屏 -->
         <activity
             android:name=".BlackActivity"
             android:exported="false"

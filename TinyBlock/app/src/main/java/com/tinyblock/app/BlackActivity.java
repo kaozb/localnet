@@ -20,9 +20,9 @@ import android.widget.FrameLayout;
  * 所以在别的应用里点悬浮球也能进入黑屏。
  * <p>
  * 遮盖视频小窗：画中画窗口的层级高于普通 Activity 但低于「全屏型窗口」。
- * 锁屏期间窗口挂 FLAG_FULLSCREEN（锁死全屏、无视子窗口占用的 inset）并从
- * LAYOUT_IN_SCREEN / LAYOUT_NO_LIMITS 改成 LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES，
- * 画中画小窗就盖不到遮罩之上；FLAG_FULLSCREEN 只能窗口创建前挂，这里在主题里配置。
+ * 锁屏期间窗口挂 FLAG_FULLSCREEN（锁死全屏、无视子窗口占用的 inset），cutout 用
+ * shortEdges 让窗口铺满整屏（含刘海），画中画小窗就盖不到遮罩之上——两个 flag 都
+ * 只能窗口创建前设置，在主题里配置（windowFullscreen + values-v28 的 shortEdges）。
  * <p>
  * 解锁无屏幕内按钮，两种手势等价：
  * 下拉通知栏——沉浸模式下滑入的是透明瞬时栏，拉到顶会盖住本窗口并夺走窗口焦点；
@@ -48,8 +48,8 @@ public class BlackActivity extends Activity {
         // 背光压到最低省电（AMOLED 纯黑像素不发光），窗口销毁自动恢复
         WindowManager.LayoutParams lp = w.getAttributes();
         lp.screenBrightness = 0.01f;
-        // 让窗口自己铺满整块屏幕（含刘海/挖孔区域），画中画等子窗口盖不上来
-        lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        // 铺满刘海区由主题的 windowLayoutInDisplayCutoutMode=shortEdges 负责
+        // （values-v28，该属性 API 28+），代码里不重复设置
         w.setAttributes(lp);
         setContentView(new FrameLayout(this));
         armedAt = SystemClock.elapsedRealtime() + 800;
