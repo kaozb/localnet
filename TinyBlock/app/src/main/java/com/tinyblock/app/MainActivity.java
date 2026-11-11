@@ -229,6 +229,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        // 兜底：黑屏中页面被销毁时拆遮罩、清隐藏系统栏 flag、恢复亮度，
+        // 防止旧 flag 与亮度残留到下次启动（lockOverlay==null 时是空操作）
+        exitBlackScreen();
         try {
             unregisterReceiver(receiver);
         } catch (Exception ignored) {
@@ -958,10 +961,14 @@ public class MainActivity extends Activity {
         }
         // 遮罩用系统级 overlay 窗口（同悬浮通知条）：Activity 内遮罩是应用层窗口，
         // 盖不住画中画/自由窗口等系统窗口（小窗会浮在黑屏上面）；
-        // 不隐藏系统栏——遮罩本身已盖住状态栏/导航栏区域，旧式隐藏 flag 是上次
-        // 「退出黑屏状态栏染色失效」的根源
+        // overlay 层级低于状态栏（系统强制状态栏在应用悬浮窗之上），盖不住时钟/电量，
+        // 所以黑屏期间临时隐藏系统栏，退出时在 exitBlackScreen 清 flag 恢复
         FrameLayout overlay = new FrameLayout(this);
         overlay.setBackgroundColor(0xFF000000);
+        getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         // 悬浮球在应用窗口里，被本遮罩盖住点不到；解锁出口直接做进遮罩窗口内
         TextView unlock = newLockChip("解锁");
         unlock.setVisibility(View.INVISIBLE);
@@ -992,7 +999,10 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
         lockOverlay = null;
-        lockBtn.setVisibility(View.VISIBLE);
+        // 黑屏期间设置的隐藏系统栏 flag 由 applyTheme 统一复位为基准态
+        // （它是系统栏状态唯一入口），避免旧 flag 残留致状态栏染色失效
+        applyTheme();
+        if (lockBtn != null) lockBtn.setVisibility(View.VISIBLE);
         setBrightness(WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE);
     }
 
