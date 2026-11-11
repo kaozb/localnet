@@ -22,6 +22,7 @@ import android.net.Uri;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.text.InputType;
 import android.text.TextUtils;
@@ -955,7 +956,7 @@ public class MainActivity extends Activity {
 
     /** 黑屏：系统级全屏纯黑遮罩模拟锁屏，亮度压到最低省电；画中画/小窗等其他应用的
      *  系统窗口也一起盖住（应用窗口内的遮罩盖不住它们）。悬浮球随黑屏隐藏；点黑屏
-     *  调出/隐藏遮罩内的「解锁」按钮，点它才解除黑屏，避免误触下层 */
+     *  调出/隐藏遮罩内的「解锁」按钮，双击它才解除黑屏，避免误触下层 */
     private void enterBlackScreen() {
         if (lockOverlay != null) return;
         if (!Settings.canDrawOverlays(this)) {
@@ -972,10 +973,21 @@ public class MainActivity extends Activity {
                 View.SYSTEM_UI_FLAG_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-        // 悬浮球在应用窗口里，被本遮罩盖住点不到；解锁出口直接做进遮罩窗口内
+        // 悬浮球在应用窗口里，被本遮罩盖住点不到；解锁出口直接做进遮罩窗口内。
+        // 双击解除：单击仅脉冲反馈表示已响应，误触不再直接解锁
         TextView unlock = newLockChip("解锁");
         unlock.setVisibility(View.INVISIBLE);
-        unlock.setOnClickListener(v -> exitBlackScreen());
+        long[] lastUnlockTap = {0};
+        unlock.setOnClickListener(v -> {
+            long now = SystemClock.elapsedRealtime();
+            if (now - lastUnlockTap[0] < ViewConfiguration.getDoubleTapTimeout()) {
+                exitBlackScreen();
+            } else {
+                lastUnlockTap[0] = now;
+                v.animate().scaleX(1.25f).scaleY(1.25f).setDuration(90)
+                        .withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(140)).start();
+            }
+        });
         overlay.addView(unlock, new FrameLayout.LayoutParams(
                 dp(44), dp(44), Gravity.CENTER));
         overlay.setOnClickListener(v -> unlock.setVisibility(
