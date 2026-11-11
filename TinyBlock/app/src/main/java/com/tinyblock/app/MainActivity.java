@@ -13,6 +13,7 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Insets;
+import android.graphics.PixelFormat;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.media.Ringtone;
@@ -218,8 +219,9 @@ public class MainActivity extends Activity {
         }
         if (!keepOn) return;
         if (!hasFocus) {
-            // 下拉状态栏 / 切到其他应用时退出黑屏并恢复默认亮度：
-            // 窗口级亮度覆盖会压住系统亮度调节，必须及时撤掉
+            // 下拉状态栏/通知栏、其他应用小窗抢焦点时退出黑屏并恢复默认亮度：
+            // ① 窗口级亮度覆盖会压住系统亮度调节，必须及时撤掉
+            // ② 黑遮罩不透明，会挡住正在操作的小窗
             exitBlackScreen();
         }
     }
@@ -837,11 +839,9 @@ public class MainActivity extends Activity {
         w.setStatusBarColor(Color.TRANSPARENT);
         w.setNavigationBarColor(Color.TRANSPARENT);
         View decor = w.getDecorView();
-        // 整体复位为「仅延伸布局、不隐藏系统栏」：清掉黑屏期间残留的
-        // SYSTEM_UI_FLAG_FULLSCREEN/HIDE_NAVIGATION/IMMERSIVE_STICKY——这组旧式 flag
-        // 只在下面 <30 分支会被覆写，API 30+ 分支不碰 systemUiVisibility，
-        // 不复位的话退出黑屏后 compat 桥接把 decorFitsSystemWindows 翻回 true，状态栏染色失效；
-        // 三件套同时让 compat 桥接保持 edge-to-edge，与下方新式 API 一致
+        // 仅延伸布局、不隐藏系统栏（三件套让 compat 桥接保持 edge-to-edge，与下方新式 API 一致）；
+        // 不要加旧式 FULLSCREEN/HIDE_NAVIGATION 隐藏 flag——它会把 API 30+ 的
+        // decorFitsSystemWindows 桥接翻回 true，状态栏染色失效
         int uiFlags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
                 | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                 | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
@@ -874,20 +874,25 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 悬浮球：可拖动；点按进入黑屏，黑屏中点按恢复 */
-    private void showLockButton() {
-        if (lockBtn != null) return;
+    /** 悬浮球/黑屏解锁按钮共用外观：44dp 圆形深蓝底 + 浅蓝描边 */
+    private TextView newLockChip(String text) {
         GradientDrawable bg = new GradientDrawable();
         bg.setShape(GradientDrawable.OVAL);
         bg.setColor(0xB317233B);
         bg.setStroke(dp(1), 0x806DA8FF);
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextColor(Color.WHITE);
+        tv.setTextSize(10);
+        tv.setGravity(Gravity.CENTER);
+        tv.setBackground(bg);
+        return tv;
+    }
 
-        TextView btn = new TextView(this);
-        btn.setText("锁屏");
-        btn.setTextColor(Color.WHITE);
-        btn.setTextSize(10);
-        btn.setGravity(Gravity.CENTER);
-        btn.setBackground(bg);
+    /** 悬浮球：可拖动；点按进入黑屏，黑屏中点按恢复 */
+    private void showLockButton() {
+        if (lockBtn != null) return;
+        TextView btn = newLockChip("锁屏");
         btn.setElevation(dp(6));
 
         float[] base = new float[2];
@@ -942,40 +947,57 @@ public class MainActivity extends Activity {
         else exitBlackScreen();
     }
 
-    /** 黑屏：全屏纯黑遮罩模拟锁屏（无任何文字），亮度压到最低省电；悬浮球随黑屏消失，
-     *  点屏幕只切换悬浮球显隐，点中悬浮球才解除黑屏 */
+    /** 黑屏：系统级全屏纯黑遮罩模拟锁屏，亮度压到最低省电；画中画/小窗等其他应用的
+     *  系统窗口也一起盖住（应用窗口内的遮罩盖不住它们）。悬浮球随黑屏隐藏；点黑屏
+     *  调出/隐藏遮罩内的「解锁」按钮，点它才解除黑屏，避免误触下层 */
     private void enterBlackScreen() {
         if (lockOverlay != null) return;
-        // 隐藏状态栏和导航栏，让黑遮罩盖住整个屏幕（通知栏也一起隐藏）
-        Window w = getWindow();
-        w.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        w.getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                        | View.SYSTEM_UI_FLAG_FULLSCREEN);
-
-        View overlay = new View(this);
+        if (!Settings.canDrawOverlays(this)) {
+            toast("黑屏需要「显示在其他应用上层」权限");
+            return;
+        }
+        // 遮罩用系统级 overlay 窗口（同悬浮通知条）：Activity 内遮罩是应用层窗口，
+        // 盖不住画中画/自由窗口等系统窗口（小窗会浮在黑屏上面）；
+        // 不隐藏系统栏——遮罩本身已盖住状态栏/导航栏区域，旧式隐藏 flag 是上次
+        // 「退出黑屏状态栏染色失效」的根源
+        FrameLayout overlay = new FrameLayout(this);
         overlay.setBackgroundColor(0xFF000000);
-        overlay.setOnClickListener(v -> lockBtn.setVisibility(
-                lockBtn.getVisibility() == View.VISIBLE ? View.INVISIBLE : View.VISIBLE));
-
-        ((ViewGroup) w.getDecorView()).addView(overlay, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        // 悬浮球在应用窗口里，被本遮罩盖住点不到；解锁出口直接做进遮罩窗口内
+        TextView unlock = newLockChip("解锁");
+        unlock.setVisibility(View.INVISIBLE);
+        unlock.setOnClickListener(v -> exitBlackScreen());
+        overlay.addView(unlock, new FrameLayout.LayoutParams(
+                dp(44), dp(44), Gravity.CENTER));
+        overlay.setOnClickListener(v -> unlock.setVisibility(
+                unlock.getVisibility() == View.VISIBLE ? View.INVISIBLE : View.VISIBLE));
+        try {
+            wm().addView(overlay, new WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                    PixelFormat.OPAQUE));
+        } catch (Exception ignored) {
+            return;
+        }
         lockOverlay = overlay;
-        lockBtn.bringToFront(); // 黑遮罩后加入会盖住悬浮球，提到最上层
         lockBtn.setVisibility(View.INVISIBLE);
         setBrightness(0.01f);
     }
 
     private void exitBlackScreen() {
         if (lockOverlay == null) return;
-        ((ViewGroup) getWindow().getDecorView()).removeView(lockOverlay);
+        try {
+            wm().removeView(lockOverlay);
+        } catch (Exception ignored) {
+        }
         lockOverlay = null;
         lockBtn.setVisibility(View.VISIBLE);
-        Window w = getWindow();
-        w.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        applyTheme(); // 恢复状态栏颜色、图标深浅
         setBrightness(WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE);
+    }
+
+    private WindowManager wm() {
+        return (WindowManager) getSystemService(WINDOW_SERVICE);
     }
 
     private void setBrightness(float v) {
